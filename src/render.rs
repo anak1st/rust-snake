@@ -32,9 +32,9 @@ const ENEMY_BODY_COLOR: Color = Color::Magenta;
 const FOOD_COLOR: Color = Color::LightRed;
 
 /// 根据当前游戏状态绘制整个界面。
-pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
+pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_color: bool) {
     if window_too_small {
-        draw_too_small(frame);
+        draw_too_small(frame, no_color);
         return;
     }
 
@@ -54,14 +54,14 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
 
     let header = Paragraph::new(Line::from("Rust Snake"))
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD))
-        .block(styled_block("Title", Color::LightCyan));
+        .style(style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD))
+        .block(styled_block("Title", Color::LightCyan, no_color));
 
     let status_text = match game.run_state() {
-        RunState::Ready => Span::styled("Ready", Style::default().fg(Color::Cyan)),
-        RunState::Running => Span::styled("Running", Style::default().fg(Color::Green)),
-        RunState::Paused => Span::styled("Paused", Style::default().fg(Color::Yellow)),
-        RunState::GameOver => Span::styled("Game Over", Style::default().fg(Color::Red)),
+        RunState::Ready => Span::styled("Ready", style_with_color(Color::Cyan, no_color)),
+        RunState::Running => Span::styled("Running", style_with_color(Color::Green, no_color)),
+        RunState::Paused => Span::styled("Paused", style_with_color(Color::Yellow, no_color)),
+        RunState::GameOver => Span::styled("Game Over", style_with_color(Color::Red, no_color)),
     };
 
     let direction_text = match game.direction() {
@@ -79,60 +79,56 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
 
     let info = Paragraph::new(vec![
         Line::from(vec![
-            Span::styled("Tick: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("Tick: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.tick_count().to_string(),
-                Style::default().fg(TEXT_COLOR).add_modifier(Modifier::BOLD),
+                style_with_color(TEXT_COLOR, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Score: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("Score: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.score().to_string(),
-                Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Enemy: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("Enemy: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.enemy_score().to_string(),
-                Style::default()
-                    .fg(Color::LightMagenta)
-                    .add_modifier(Modifier::BOLD),
+                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("State: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("State: ", style_with_color(MUTED_COLOR, no_color)),
             status_text,
         ]),
         Line::from(vec![
-            Span::styled("Direction: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("Direction: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 direction_text,
-                Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
+                style_with_color(Color::LightBlue, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("AI Dir: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled("AI Dir: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 enemy_direction_text,
-                Style::default()
-                    .fg(Color::LightMagenta)
-                    .add_modifier(Modifier::BOLD),
+                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
     ])
-    .block(styled_block("Status", Color::LightBlue));
+    .block(styled_block("Status", Color::LightBlue, no_color));
 
     let footer = Paragraph::new(Line::from(help_text(game.run_state())))
         .alignment(Alignment::Center)
-        .style(Style::default().fg(MUTED_COLOR))
-        .block(styled_block("Help", Color::Gray));
+        .style(style_with_color(MUTED_COLOR, no_color))
+        .block(styled_block("Help", Color::Gray, no_color));
 
     frame.render_widget(header, header_area);
     frame.render_widget(info, info_area);
-    draw_board(frame, board_area, game);
+    draw_board(frame, board_area, game, no_color);
     frame.render_widget(footer, footer_area);
 }
 
@@ -162,9 +158,9 @@ fn min_terminal_height() -> u16 {
 }
 
 /// 按当前状态绘制棋盘区域，提示页使用居中的内容块。
-fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState) {
-    let board = Paragraph::new(render_live_board(game))
-        .block(styled_block("Board", Color::Green));
+fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, no_color: bool) {
+    let board = Paragraph::new(render_live_board(game, no_color))
+        .block(styled_block("Board", Color::Green, no_color));
     frame.render_widget(board, area);
 
     match game.run_state() {
@@ -174,12 +170,13 @@ fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState) 
             area,
             "Ready",
             &["Rust Snake", "", "按 Enter、Space 或方向键开始", "使用 WASD 或方向键控制移动", "按 q 可随时退出"],
+            no_color,
         ),
         RunState::Paused => {
-            draw_message_popup(frame, area, "Paused", &["游戏已暂停", "", "按 Space 继续"])
+            draw_message_popup(frame, area, "Paused", &["游戏已暂停", "", "按 Space 继续"], no_color)
         }
         RunState::GameOver => {
-            draw_message_popup(frame, area, "Game Over", &["游戏结束", "", "按 r 重新开始"])
+            draw_message_popup(frame, area, "Game Over", &["游戏结束", "", "按 r 重新开始"], no_color)
         }
     }
 }
@@ -195,7 +192,7 @@ fn help_text(state: RunState) -> &'static str {
 }
 
 /// 渲染正常游玩中的棋盘内容。
-fn render_live_board(game: &GameState) -> Vec<Line<'static>> {
+fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
     let player_head = game.snake().back().copied();
     let enemy_head = game.enemy_snake().back().copied();
@@ -207,22 +204,20 @@ fn render_live_board(game: &GameState) -> Vec<Line<'static>> {
         for x in 0..width {
             let position = Position { x, y };
             let cell = if Some(position) == player_head {
-                Span::styled("@", Style::default().fg(HEAD_COLOR).add_modifier(Modifier::BOLD))
+                Span::styled("@", style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD))
             } else if Some(position) == enemy_head {
                 Span::styled(
                     "X",
-                    Style::default()
-                        .fg(ENEMY_HEAD_COLOR)
-                        .add_modifier(Modifier::BOLD),
+                    style_with_color(ENEMY_HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if game.foods().contains(&position) {
-                Span::styled("*", Style::default().fg(FOOD_COLOR).add_modifier(Modifier::BOLD))
+                Span::styled("*", style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD))
             } else if game.snake().contains(&position) {
-                Span::styled("o", Style::default().fg(BODY_COLOR))
+                Span::styled("o", style_with_color(BODY_COLOR, no_color))
             } else if game.enemy_snake().contains(&position) {
-                Span::styled("x", Style::default().fg(ENEMY_BODY_COLOR))
+                Span::styled("x", style_with_color(ENEMY_BODY_COLOR, no_color))
             } else {
-                Span::styled("·", Style::default().fg(MUTED_COLOR))
+                Span::styled("·", style_with_color(MUTED_COLOR, no_color))
             };
 
             cells.push(cell);
@@ -240,48 +235,58 @@ fn draw_message_popup(
     area: ratatui::layout::Rect,
     title: &'static str,
     lines: &[&'static str],
+    no_color: bool,
 ) {
     let popup_height = (lines.len() as u16).saturating_add(2);
     let popup_area = centered_area(area, 40, popup_height);
     let content = lines
         .iter()
-        .map(|line| Line::from(Span::styled(*line, Style::default().fg(TEXT_COLOR))))
+        .map(|line| Line::from(Span::styled(*line, style_with_color(TEXT_COLOR, no_color))))
         .collect::<Vec<_>>();
-    let popup = Paragraph::new(content).block(styled_block(title, Color::LightMagenta));
+    let popup = Paragraph::new(content).block(styled_block(title, Color::LightMagenta, no_color));
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }
 
 /// 在终端过小时绘制提示界面。
-fn draw_too_small(frame: &mut Frame) {
+fn draw_too_small(frame: &mut Frame, no_color: bool) {
     let area = frame.area();
     let popup_area = centered_area(area, 42, 7);
     let popup = Paragraph::new(vec![
         Line::from(Span::styled(
             "终端窗口过小",
-            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+            style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(Span::styled("请放大终端后继续游戏", Style::default().fg(TEXT_COLOR))),
+        Line::from(Span::styled("请放大终端后继续游戏", style_with_color(TEXT_COLOR, no_color))),
         Line::from(Span::styled(
             "调整到足够大小后会自动重开",
-            Style::default().fg(TEXT_COLOR),
+            style_with_color(TEXT_COLOR, no_color),
         )),
-        Line::from(Span::styled("按 q 退出", Style::default().fg(MUTED_COLOR))),
+        Line::from(Span::styled("按 q 退出", style_with_color(MUTED_COLOR, no_color))),
     ])
-    .block(styled_block("Window Too Small", Color::LightYellow));
+    .block(styled_block("Window Too Small", Color::LightYellow, no_color));
 
     frame.render_widget(Clear, area);
     frame.render_widget(popup, popup_area);
 }
 
 /// 创建带颜色边框的统一面板样式。
-fn styled_block(title: &'static str, border_color: Color) -> Block<'static> {
+fn styled_block(title: &'static str, border_color: Color, no_color: bool) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .title(title)
-        .border_style(Style::default().fg(border_color))
-        .title_style(Style::default().fg(border_color).add_modifier(Modifier::BOLD))
+        .border_style(style_with_color(border_color, no_color))
+        .title_style(style_with_color(border_color, no_color).add_modifier(Modifier::BOLD))
+}
+
+/// 根据是否关闭颜色返回对应的文本样式。
+fn style_with_color(color: Color, no_color: bool) -> Style {
+    if no_color {
+        Style::default()
+    } else {
+        Style::default().fg(color)
+    }
 }
 
 /// 在指定区域中计算一个居中的内容块。

@@ -22,15 +22,17 @@ pub struct App {
     game: GameState,
     should_quit: bool,
     window_too_small: bool,
+    no_color: bool,
 }
 
 impl App {
     /// 创建应用实例，并初始化默认游戏状态。
-    pub fn new() -> Self {
+    pub fn new(no_color: bool) -> Self {
         Self {
             game: GameState::new(),
             should_quit: false,
             window_too_small: false,
+            no_color,
         }
     }
 
@@ -48,7 +50,7 @@ impl App {
         let mut last_tick = Instant::now();
 
         while !self.should_quit {
-            terminal.draw(|frame| render::draw(frame, &self.game, self.window_too_small))?;
+            terminal.draw(|frame| render::draw(frame, &self.game, self.window_too_small, self.no_color))?;
 
             let timeout = TICK_RATE.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
