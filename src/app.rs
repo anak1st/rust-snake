@@ -8,10 +8,11 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 use ratatui::Terminal;
 
-use crate::game::GameState;
-use crate::render;
+use crate::game::{Direction, GameState};
+use crate::render::{self, board_size_for_terminal};
 
 const TICK_RATE: Duration = Duration::from_millis(160);
 
@@ -30,6 +31,7 @@ impl App {
 
     pub fn run(&mut self) -> Result<()> {
         let mut terminal = setup_terminal()?;
+        self.resize_game_to_terminal(terminal.size()?.into());
         let result = self.run_loop(&mut terminal);
         restore_terminal()?;
         result
@@ -55,18 +57,33 @@ impl App {
         Ok(())
     }
 
+    fn resize_game_to_terminal(&mut self, area: Rect) {
+        let (width, height) = board_size_for_terminal(area.width, area.height);
+        self.game.restart_with_board_size(width, height);
+    }
+
     fn handle_event(&mut self, event: Event) -> Result<()> {
-        let Event::Key(key) = event else {
-            return Ok(());
-        };
+        match event {
+            Event::Key(key) => {
+                if key.kind != KeyEventKind::Press {
+                    return Ok(());
+                }
 
-        if key.kind != KeyEventKind::Press {
-            return Ok(());
-        }
-
-        match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
-            KeyCode::Char(' ') => self.game.toggle_pause(),
+                match key.code {
+                    KeyCode::Char('q') => self.should_quit = true,
+                    KeyCode::Char(' ') => self.game.toggle_pause(),
+                    KeyCode::Char('r') => self.game.restart(),
+                    KeyCode::Up | KeyCode::Char('w') => self.game.set_direction(Direction::Up),
+                    KeyCode::Down | KeyCode::Char('s') => self.game.set_direction(Direction::Down),
+                    KeyCode::Left | KeyCode::Char('a') => self.game.set_direction(Direction::Left),
+                    KeyCode::Right | KeyCode::Char('d') => self.game.set_direction(Direction::Right),
+                    _ => {}
+                }
+            }
+            Event::Resize(width, height) => {
+                let (board_width, board_height) = board_size_for_terminal(width, height);
+                self.game.restart_with_board_size(board_width, board_height);
+            }
             _ => {}
         }
 
