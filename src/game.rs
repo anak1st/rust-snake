@@ -441,6 +441,35 @@ impl GameState {
             }
         }
 
+        let next = self.next_position(enemy.head(), enemy.direction);
+        if self.enemy_step_is_safe(enemy_index, next) {
+            return NavigationDecision {
+                direction: enemy.direction,
+                random_walk_steps: 0,
+                random_walk_direction: None,
+            };
+        }
+
+        let safe_dirs = [
+            Direction::Up,
+            Direction::Down,
+            Direction::Left,
+            Direction::Right,
+        ]
+        .into_iter()
+        .filter(|&d| {
+            !Self::is_opposite(enemy.direction, d)
+                && self.enemy_step_is_safe(enemy_index, self.next_position(enemy.head(), d))
+        });
+
+        if let Some(direction) = safe_dirs.into_iter().next() {
+            return NavigationDecision {
+                direction,
+                random_walk_steps: 0,
+                random_walk_direction: None,
+            };
+        }
+
         NavigationDecision {
             direction: enemy.direction,
             random_walk_steps: 0,
@@ -456,6 +485,7 @@ impl GameState {
             Direction::Right,
         ];
         let mut rng = rand::rng();
+        let mut safe_directions = Vec::new();
 
         for _ in 0..all.len() {
             let direction = all[rng.random_range(0..all.len())];
@@ -465,11 +495,20 @@ impl GameState {
 
             let next = self.next_position(self.enemies[enemy_index].head(), direction);
             if self.enemy_step_is_safe(enemy_index, next) {
-                return direction;
+                safe_directions.push(direction);
             }
         }
 
-        current_direction
+        if let Some(&direction) = safe_directions.first() {
+            return direction;
+        }
+
+        let next = self.next_position(self.enemies[enemy_index].head(), current_direction);
+        if self.enemy_step_is_safe(enemy_index, next) {
+            return current_direction;
+        }
+
+        Direction::Up
     }
 
     fn enemy_step_is_safe(&self, enemy_index: usize, next: Position) -> bool {
@@ -820,12 +859,11 @@ mod tests {
         let game = GameState::with_board_size(20, 10);
 
         assert_eq!(game.enemy_count(), 3);
-        assert!(
-            game.enemies()
-                .iter()
-                .flat_map(|enemy| enemy.body().iter())
-                .all(|segment| !game.snake().contains(segment))
-        );
+        assert!(game
+            .enemies()
+            .iter()
+            .flat_map(|enemy| enemy.body().iter())
+            .all(|segment| !game.snake().contains(segment)));
     }
 
     #[test]
@@ -835,12 +873,10 @@ mod tests {
 
         for (index, enemy) in game.enemies().iter().enumerate() {
             for other in game.enemies().iter().skip(index + 1) {
-                assert!(
-                    enemy
-                        .body()
-                        .iter()
-                        .all(|segment| !other.body().contains(segment))
-                );
+                assert!(enemy
+                    .body()
+                    .iter()
+                    .all(|segment| !other.body().contains(segment)));
             }
         }
     }
