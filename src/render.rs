@@ -11,7 +11,7 @@ const HEADER_HEIGHT: u16 = 3;
 /// 底部帮助栏的固定高度。
 const FOOTER_HEIGHT: u16 = 3;
 /// 状态信息区域的固定高度。
-const INFO_HEIGHT: u16 = 6;
+const INFO_HEIGHT: u16 = 9;
 /// 允许的最小棋盘宽度，避免窗口过小时不可玩。
 const MIN_BOARD_WIDTH: u16 = 10;
 /// 允许的最小棋盘高度，避免窗口过小时不可玩。
@@ -24,6 +24,10 @@ const MUTED_COLOR: Color = Color::DarkGray;
 const HEAD_COLOR: Color = Color::LightGreen;
 /// 蛇身的主体颜色。
 const BODY_COLOR: Color = Color::Green;
+/// 敌蛇蛇头的高亮颜色。
+const ENEMY_HEAD_COLOR: Color = Color::LightMagenta;
+/// 敌蛇蛇身的主体颜色。
+const ENEMY_BODY_COLOR: Color = Color::Magenta;
 /// 食物的强调颜色。
 const FOOD_COLOR: Color = Color::LightRed;
 
@@ -66,6 +70,12 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
         SnakeDirection::Left => "Left",
         SnakeDirection::Right => "Right",
     };
+    let enemy_direction_text = match game.enemy_direction() {
+        SnakeDirection::Up => "Up",
+        SnakeDirection::Down => "Down",
+        SnakeDirection::Left => "Left",
+        SnakeDirection::Right => "Right",
+    };
 
     let info = Paragraph::new(vec![
         Line::from(vec![
@@ -82,6 +92,15 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
                 Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
             ),
         ]),
+        Line::from(vec![
+            Span::styled("Enemy: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled(
+                game.enemy_score().to_string(),
+                Style::default()
+                    .fg(Color::LightMagenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("State: ", Style::default().fg(MUTED_COLOR)),
@@ -92,6 +111,15 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
             Span::styled(
                 direction_text,
                 Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("AI Dir: ", Style::default().fg(MUTED_COLOR)),
+            Span::styled(
+                enemy_direction_text,
+                Style::default()
+                    .fg(Color::LightMagenta)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
     ])
@@ -169,7 +197,8 @@ fn help_text(state: RunState) -> &'static str {
 /// 渲染正常游玩中的棋盘内容。
 fn render_live_board(game: &GameState) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
-    let head = game.snake().back().copied();
+    let player_head = game.snake().back().copied();
+    let enemy_head = game.enemy_snake().back().copied();
     let mut rows = Vec::with_capacity(height as usize);
 
     for y in 0..height {
@@ -177,12 +206,21 @@ fn render_live_board(game: &GameState) -> Vec<Line<'static>> {
 
         for x in 0..width {
             let position = Position { x, y };
-            let cell = if Some(position) == head {
+            let cell = if Some(position) == player_head {
                 Span::styled("@", Style::default().fg(HEAD_COLOR).add_modifier(Modifier::BOLD))
-            } else if game.food() == position {
+            } else if Some(position) == enemy_head {
+                Span::styled(
+                    "X",
+                    Style::default()
+                        .fg(ENEMY_HEAD_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else if game.foods().contains(&position) {
                 Span::styled("*", Style::default().fg(FOOD_COLOR).add_modifier(Modifier::BOLD))
             } else if game.snake().contains(&position) {
                 Span::styled("o", Style::default().fg(BODY_COLOR))
+            } else if game.enemy_snake().contains(&position) {
+                Span::styled("x", Style::default().fg(ENEMY_BODY_COLOR))
             } else {
                 Span::styled("·", Style::default().fg(MUTED_COLOR))
             };
