@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use rand::{seq::SliceRandom, Rng};
+use rand::Rng;
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +54,10 @@ pub struct GameState {
     pending_direction: Direction,
     /// 敌蛇当前已经生效的移动方向。
     enemy_direction: Direction,
+    /// 敌蛇随机漫步剩余步数，为0时表示追逐食物模式。
+    enemy_random_walk_steps: u8,
+    /// 敌蛇随机漫步的方向。
+    enemy_random_walk_direction: Option<Direction>,
     /// 玩家蛇身坐标队列，尾部在前，头部在后。
     snake: VecDeque<Position>,
     /// 敌方蛇身坐标队列，尾部在前，头部在后。
@@ -83,6 +87,8 @@ impl GameState {
             direction: Direction::Right,
             pending_direction: Direction::Right,
             enemy_direction: Direction::Left,
+            enemy_random_walk_steps: 0,
+            enemy_random_walk_direction: None,
             snake,
             enemy_snake,
             foods: Vec::new(),
@@ -105,6 +111,10 @@ impl GameState {
         }
 
         self.direction = self.pending_direction;
+
+        if self.enemy_random_walk_steps > 0 {
+            self.enemy_random_walk_steps -= 1;
+        }
         self.enemy_direction = self.choose_enemy_direction();
 
         let player_next = self.next_position(self.player_head(), self.direction);
@@ -279,6 +289,8 @@ impl GameState {
     fn respawn_enemy(&mut self) {
         self.enemy_snake = Self::spawn_enemy_snake(self.width, self.height);
         self.enemy_direction = Direction::Left;
+        self.enemy_random_walk_steps = 0;
+        self.enemy_random_walk_direction = None;
 
         while self.snake_overlaps(&self.enemy_snake)
             || self
@@ -290,29 +302,34 @@ impl GameState {
         }
     }
 
-    fn choose_enemy_direction(&self) -> Direction {
+    fn choose_enemy_direction(&mut self) -> Direction {
+        if self.enemy_random_walk_steps > 0 {
+            if let Some(walk_dir) = self.enemy_random_walk_direction {
+                let next = self.next_position(self.enemy_head(), walk_dir);
+                if !self.hit_wall(next)
+                    && !self.occupies_with_tail_rules(&self.enemy_snake, next, false)
+                    && !self.occupies_with_tail_rules(&self.snake, next, false)
+                {
+                    return walk_dir;
+                }
+            }
+            let walk_dir = self.random_walk_direction();
+            self.enemy_random_walk_direction = Some(walk_dir);
+            return walk_dir;
+        }
+
         let mut rng = rand::rng();
         if rng.random_range(0..100) < 15 {
-            return self.random_walk_direction(rng);
+            let walk_dir = self.random_walk_direction();
+            self.enemy_random_walk_steps = rng.random_range(5..15);
+            self.enemy_random_walk_direction = Some(walk_dir);
+            return walk_dir;
         }
 
         let target = self.closest_food_to(self.enemy_head());
-        let mut candidates = self.preferred_directions(self.enemy_head(), target);
+        let preferred = self.preferred_directions(self.enemy_head(), target);
 
-        for fallback in [
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-            Direction::Right,
-        ] {
-            if !candidates.contains(&fallback) {
-                candidates.push(fallback);
-            }
-        }
-
-        candidates.shuffle(&mut rng);
-
-        for direction in candidates {
+        for direction in preferred {
             if Self::is_opposite(self.enemy_direction, direction) {
                 continue;
             }
@@ -328,24 +345,25 @@ impl GameState {
                 continue;
             }
 
+            self.enemy_random_walk_direction = None;
             return direction;
         }
 
         self.enemy_direction
     }
 
-    fn random_walk_direction(&self, mut rng: impl rand::Rng) -> Direction {
+    fn random_walk_direction(&self) -> Direction {
         let all = [
             Direction::Up,
             Direction::Down,
             Direction::Left,
             Direction::Right,
         ];
-        let mut directions: Vec<Direction> = all.into();
+        let mut rng = rand::rng();
 
         for _ in 0..3 {
-            let idx = rng.random_range(0..directions.len());
-            let direction = directions.remove(idx);
+            let idx = rng.random_range(0..all.len());
+            let direction = all[idx];
             if Self::is_opposite(self.enemy_direction, direction) {
                 continue;
             }
