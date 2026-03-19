@@ -11,7 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 
-use crate::game::{Direction, GameState};
+use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal};
 
 /// 控制游戏逻辑推进频率，决定蛇移动速度。
@@ -78,12 +78,39 @@ impl App {
 
                 match key.code {
                     KeyCode::Char('q') => self.should_quit = true,
-                    KeyCode::Char(' ') => self.game.toggle_pause(),
+                    KeyCode::Enter => self.game.start(),
+                    KeyCode::Char(' ') => {
+                        if self.game.run_state() == RunState::Ready {
+                            self.game.start();
+                        } else {
+                            self.game.toggle_pause();
+                        }
+                    }
                     KeyCode::Char('r') => self.game.restart(),
-                    KeyCode::Up | KeyCode::Char('w') => self.game.set_direction(Direction::Up),
-                    KeyCode::Down | KeyCode::Char('s') => self.game.set_direction(Direction::Down),
-                    KeyCode::Left | KeyCode::Char('a') => self.game.set_direction(Direction::Left),
-                    KeyCode::Right | KeyCode::Char('d') => self.game.set_direction(Direction::Right),
+                    KeyCode::Up | KeyCode::Char('w') => {
+                        if self.game.run_state() == RunState::Ready {
+                            self.game.start();
+                        }
+                        self.game.set_direction(Direction::Up);
+                    }
+                    KeyCode::Down | KeyCode::Char('s') => {
+                        if self.game.run_state() == RunState::Ready {
+                            self.game.start();
+                        }
+                        self.game.set_direction(Direction::Down);
+                    }
+                    KeyCode::Left | KeyCode::Char('a') => {
+                        if self.game.run_state() == RunState::Ready {
+                            self.game.start();
+                        }
+                        self.game.set_direction(Direction::Left);
+                    }
+                    KeyCode::Right | KeyCode::Char('d') => {
+                        if self.game.run_state() == RunState::Ready {
+                            self.game.start();
+                        }
+                        self.game.set_direction(Direction::Right);
+                    }
                     _ => {}
                 }
             }

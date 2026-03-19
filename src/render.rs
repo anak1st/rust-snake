@@ -1,7 +1,7 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::game::{Direction as SnakeDirection, GameState, Position, RunState};
@@ -38,6 +38,7 @@ pub fn draw(frame: &mut Frame, game: &GameState) {
         .block(Block::default().borders(Borders::ALL).title("Title"));
 
     let status_text = match game.run_state() {
+        RunState::Ready => Span::styled("Ready", Style::default().fg(Color::Cyan)),
         RunState::Running => Span::styled("Running", Style::default().fg(Color::Green)),
         RunState::Paused => Span::styled("Paused", Style::default().fg(Color::Yellow)),
         RunState::GameOver => Span::styled("Game Over", Style::default().fg(Color::Red)),
@@ -68,16 +69,13 @@ pub fn draw(frame: &mut Frame, game: &GameState) {
     ])
     .block(Block::default().borders(Borders::ALL).title("Status"));
 
-    let board = Paragraph::new(render_board_lines(game))
-        .block(Block::default().borders(Borders::ALL).title("Board"));
-
-    let footer = Paragraph::new(Line::from("WASD/方向键移动 | Space 暂停 | r 重开 | q 退出 | 调整窗口会重开"))
+    let footer = Paragraph::new(Line::from(help_text(game.run_state())))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL).title("Help"));
 
     frame.render_widget(header, header_area);
     frame.render_widget(info, info_area);
-    frame.render_widget(board, board_area);
+    draw_board(frame, board_area, game);
     frame.render_widget(footer, footer_area);
 }
 
@@ -91,8 +89,41 @@ pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
     (board_width, board_height)
 }
 
-/// 把当前游戏棋盘转换成逐行渲染的文本内容。
-fn render_board_lines(game: &GameState) -> Vec<Line<'static>> {
+/// 按当前状态绘制棋盘区域，提示页使用居中的内容块。
+fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState) {
+    let board = Paragraph::new(render_live_board(game))
+        .block(Block::default().borders(Borders::ALL).title("Board"));
+    frame.render_widget(board, area);
+
+    match game.run_state() {
+        RunState::Running => {}
+        RunState::Ready => draw_message_popup(
+            frame,
+            area,
+            "Ready",
+            &["Rust Snake", "", "按 Enter、Space 或方向键开始", "使用 WASD 或方向键控制移动", "按 q 可随时退出"],
+        ),
+        RunState::Paused => {
+            draw_message_popup(frame, area, "Paused", &["游戏已暂停", "", "按 Space 继续"])
+        }
+        RunState::GameOver => {
+            draw_message_popup(frame, area, "Game Over", &["游戏结束", "", "按 r 重新开始"])
+        }
+    }
+}
+
+/// 根据当前状态返回底部帮助文案。
+fn help_text(state: RunState) -> &'static str {
+    match state {
+        RunState::Ready => "Enter / Space / 方向键开始 | q 退出 | 调整窗口会重开",
+        RunState::Running => "WASD/方向键移动 | Space 暂停 | r 重开 | q 退出 | 调整窗口会重开",
+        RunState::Paused => "Space 继续 | r 重开 | q 退出 | 调整窗口会重开",
+        RunState::GameOver => "r 重新开始 | q 退出 | 调整窗口会重开",
+    }
+}
+
+/// 渲染正常游玩中的棋盘内容。
+fn render_live_board(game: &GameState) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
     let head = game.snake().back().copied();
     let mut rows = Vec::with_capacity(height as usize);
@@ -119,4 +150,45 @@ fn render_board_lines(game: &GameState) -> Vec<Line<'static>> {
     }
 
     rows
+}
+
+/// 在棋盘中央绘制一个整体居中、段内左对齐的提示面板。
+fn draw_message_popup(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    title: &'static str,
+    lines: &[&'static str],
+) {
+    let popup_height = (lines.len() as u16).saturating_add(2);
+    let popup_area = centered_area(area, 40, popup_height);
+    let content = lines.iter().map(|line| Line::from(*line)).collect::<Vec<_>>();
+    let popup = Paragraph::new(content).block(Block::default().borders(Borders::ALL).title(title));
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}
+
+/// 在指定区域中计算一个居中的内容块。
+fn centered_area(area: ratatui::layout::Rect, width: u16, height: u16) -> ratatui::layout::Rect {
+    let popup_width = width.min(area.width.saturating_sub(2)).max(1);
+    let popup_height = height.min(area.height.saturating_sub(2)).max(1);
+
+    let vertical: [ratatui::layout::Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(popup_height),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+
+    let horizontal: [ratatui::layout::Rect; 3] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(popup_width),
+            Constraint::Fill(1),
+        ])
+        .areas(vertical[1]);
+
+    horizontal[1]
 }

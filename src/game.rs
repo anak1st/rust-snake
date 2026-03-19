@@ -5,6 +5,8 @@ use rand::Rng;
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunState {
+    /// 游戏尚未开始，显示开始界面。
+    Ready,
     /// 游戏正常进行中。
     Running,
     /// 游戏已暂停，tick 不再推进。
@@ -78,7 +80,7 @@ impl GameState {
             height,
             tick_count: 0,
             score: 0,
-            state: RunState::Running,
+            state: RunState::Ready,
             direction: Direction::Right,
             pending_direction: Direction::Right,
             snake,
@@ -86,6 +88,13 @@ impl GameState {
         };
         game.food = game.random_empty_position();
         game
+    }
+
+    /// 进入运行状态，开始或继续推进游戏。
+    pub fn start(&mut self) {
+        if matches!(self.state, RunState::Ready | RunState::Paused) {
+            self.state = RunState::Running;
+        }
     }
 
     /// 推进一帧游戏逻辑，处理移动、吃食物和碰撞。
@@ -118,6 +127,7 @@ impl GameState {
         self.state = match self.state {
             RunState::Running => RunState::Paused,
             RunState::Paused => RunState::Running,
+            RunState::Ready => RunState::Ready,
             RunState::GameOver => RunState::GameOver,
         };
     }
@@ -241,6 +251,7 @@ mod tests {
     /// 验证每次 tick 都会让蛇头向前推进一格。
     fn snake_moves_forward_on_tick() {
         let mut game = GameState::with_board_size(10, 8);
+        game.start();
         let old_head = game.snake().back().copied().unwrap();
 
         game.tick();
@@ -254,6 +265,7 @@ mod tests {
     /// 验证直接反向输入会被忽略，避免蛇原地掉头。
     fn opposite_direction_is_ignored() {
         let mut game = GameState::with_board_size(10, 8);
+        game.start();
         game.set_direction(Direction::Left);
 
         game.tick();
@@ -265,11 +277,20 @@ mod tests {
     /// 验证蛇撞到边界后会进入游戏结束状态。
     fn wall_collision_ends_game() {
         let mut game = GameState::with_board_size(4, 4);
+        game.start();
 
         for _ in 0..3 {
             game.tick();
         }
 
         assert_eq!(game.run_state(), RunState::GameOver);
+    }
+
+    #[test]
+    /// 验证新游戏默认停留在开始界面，等待玩家启动。
+    fn new_game_starts_in_ready_state() {
+        let game = GameState::with_board_size(10, 8);
+
+        assert_eq!(game.run_state(), RunState::Ready);
     }
 }
