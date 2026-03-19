@@ -12,7 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::Terminal;
 
 use crate::game::{Direction, GameState, RunState};
-use crate::render::{self, board_size_for_terminal};
+use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
 
 /// 控制游戏逻辑推进频率，决定蛇移动速度。
 const TICK_RATE: Duration = Duration::from_millis(160);
@@ -21,6 +21,7 @@ const TICK_RATE: Duration = Duration::from_millis(160);
 pub struct App {
     game: GameState,
     should_quit: bool,
+    window_too_small: bool,
 }
 
 impl App {
@@ -29,6 +30,7 @@ impl App {
         Self {
             game: GameState::new(),
             should_quit: false,
+            window_too_small: false,
         }
     }
 
@@ -46,14 +48,14 @@ impl App {
         let mut last_tick = Instant::now();
 
         while !self.should_quit {
-            terminal.draw(|frame| render::draw(frame, &self.game))?;
+            terminal.draw(|frame| render::draw(frame, &self.game, self.window_too_small))?;
 
             let timeout = TICK_RATE.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
                 self.handle_event(event::read()?)?;
             }
 
-            if last_tick.elapsed() >= TICK_RATE {
+            if !self.window_too_small && last_tick.elapsed() >= TICK_RATE {
                 self.game.tick();
                 last_tick = Instant::now();
             }
@@ -64,6 +66,11 @@ impl App {
 
     /// 按当前终端可用区域重新计算棋盘尺寸，并重开一局。
     fn resize_game_to_terminal(&mut self, area: Rect) {
+        self.window_too_small = is_terminal_too_small(area.width, area.height);
+        if self.window_too_small {
+            return;
+        }
+
         let (width, height) = board_size_for_terminal(area.width, area.height);
         self.game.restart_with_board_size(width, height);
     }
@@ -73,6 +80,13 @@ impl App {
         match event {
             Event::Key(key) => {
                 if key.kind != KeyEventKind::Press {
+                    return Ok(());
+                }
+
+                if self.window_too_small {
+                    if key.code == KeyCode::Char('q') {
+                        self.should_quit = true;
+                    }
                     return Ok(());
                 }
 
@@ -115,8 +129,7 @@ impl App {
                 }
             }
             Event::Resize(width, height) => {
-                let (board_width, board_height) = board_size_for_terminal(width, height);
-                self.game.restart_with_board_size(board_width, board_height);
+                self.resize_game_to_terminal(Rect::new(0, 0, width, height));
             }
             _ => {}
         }

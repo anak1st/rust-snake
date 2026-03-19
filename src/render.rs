@@ -18,7 +18,12 @@ const MIN_BOARD_WIDTH: u16 = 10;
 const MIN_BOARD_HEIGHT: u16 = 6;
 
 /// 根据当前游戏状态绘制整个界面。
-pub fn draw(frame: &mut Frame, game: &GameState) {
+pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool) {
+    if window_too_small {
+        draw_too_small(frame);
+        return;
+    }
+
     let [header_area, body_area, footer_area] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -79,6 +84,11 @@ pub fn draw(frame: &mut Frame, game: &GameState) {
     frame.render_widget(footer, footer_area);
 }
 
+/// 判断当前终端尺寸是否已经小到无法稳定显示主界面。
+pub fn is_terminal_too_small(width: u16, height: u16) -> bool {
+    width < min_terminal_width() || height < min_terminal_height()
+}
+
 /// 根据终端尺寸估算可用棋盘大小，并保留最小可玩尺寸。
 pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
     let board_width = width.saturating_sub(2).max(MIN_BOARD_WIDTH);
@@ -87,6 +97,16 @@ pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
         .max(MIN_BOARD_HEIGHT);
 
     (board_width, board_height)
+}
+
+/// 返回主界面正常显示所需的最小终端宽度。
+fn min_terminal_width() -> u16 {
+    MIN_BOARD_WIDTH + 2
+}
+
+/// 返回主界面正常显示所需的最小终端高度。
+fn min_terminal_height() -> u16 {
+    HEADER_HEIGHT + FOOTER_HEIGHT + INFO_HEIGHT + MIN_BOARD_HEIGHT + 2
 }
 
 /// 按当前状态绘制棋盘区域，提示页使用居中的内容块。
@@ -164,6 +184,23 @@ fn draw_message_popup(
     let content = lines.iter().map(|line| Line::from(*line)).collect::<Vec<_>>();
     let popup = Paragraph::new(content).block(Block::default().borders(Borders::ALL).title(title));
     frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}
+
+/// 在终端过小时绘制提示界面。
+fn draw_too_small(frame: &mut Frame) {
+    let area = frame.area();
+    let popup_area = centered_area(area, 42, 7);
+    let popup = Paragraph::new(vec![
+        Line::from("终端窗口过小"),
+        Line::from(""),
+        Line::from("请放大终端后继续游戏"),
+        Line::from("调整到足够大小后会自动重开"),
+        Line::from("按 q 退出"),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Window Too Small"));
+
+    frame.render_widget(Clear, area);
     frame.render_widget(popup, popup_area);
 }
 
