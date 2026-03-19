@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,7 +211,10 @@ impl GameState {
 
     /// 返回玩家蛇头位置。
     fn player_head(&self) -> Position {
-        self.snake.back().copied().unwrap_or(Position { x: 0, y: 0 })
+        self.snake
+            .back()
+            .copied()
+            .unwrap_or(Position { x: 0, y: 0 })
     }
 
     /// 返回敌蛇蛇头位置。
@@ -277,13 +280,22 @@ impl GameState {
         self.enemy_snake = Self::spawn_enemy_snake(self.width, self.height);
         self.enemy_direction = Direction::Left;
 
-        while self.snake_overlaps(&self.enemy_snake) || self.foods.iter().any(|food| self.enemy_snake.contains(food)) {
+        while self.snake_overlaps(&self.enemy_snake)
+            || self
+                .foods
+                .iter()
+                .any(|food| self.enemy_snake.contains(food))
+        {
             self.enemy_snake = Self::spawn_enemy_snake(self.width, self.height);
         }
     }
 
-    /// 根据当前局势为敌蛇选择一个尽量安全且接近食物的方向。
     fn choose_enemy_direction(&self) -> Direction {
+        let mut rng = rand::rng();
+        if rng.random_range(0..100) < 40 {
+            return self.random_walk_direction(rng);
+        }
+
         let target = self.closest_food_to(self.enemy_head());
         let mut candidates = self.preferred_directions(self.enemy_head(), target);
 
@@ -297,6 +309,8 @@ impl GameState {
                 candidates.push(fallback);
             }
         }
+
+        candidates.shuffle(&mut rng);
 
         for direction in candidates {
             if Self::is_opposite(self.enemy_direction, direction) {
@@ -315,6 +329,33 @@ impl GameState {
             }
 
             return direction;
+        }
+
+        self.enemy_direction
+    }
+
+    fn random_walk_direction(&self, mut rng: impl rand::Rng) -> Direction {
+        let all = [
+            Direction::Up,
+            Direction::Down,
+            Direction::Left,
+            Direction::Right,
+        ];
+        let mut directions: Vec<Direction> = all.into();
+
+        for _ in 0..3 {
+            let idx = rng.random_range(0..directions.len());
+            let direction = directions.remove(idx);
+            if Self::is_opposite(self.enemy_direction, direction) {
+                continue;
+            }
+            let next = self.next_position(self.enemy_head(), direction);
+            if !self.hit_wall(next)
+                && !self.occupies_with_tail_rules(&self.enemy_snake, next, false)
+                && !self.occupies_with_tail_rules(&self.snake, next, false)
+            {
+                return direction;
+            }
         }
 
         self.enemy_direction
