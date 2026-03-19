@@ -2,6 +2,9 @@
 
 一个基于 Rust、`ratatui` 和 `crossterm` 的终端贪吃蛇项目，支持双蛇对战。
 
+## 游戏截图
+![](docs/screenshot.png)
+
 ## 当前功能
 
 - 终端 TUI 界面
