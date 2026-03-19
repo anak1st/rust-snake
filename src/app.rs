@@ -14,8 +14,10 @@ use ratatui::Terminal;
 use crate::game::{Direction, GameState};
 use crate::render::{self, board_size_for_terminal};
 
+/// 控制游戏逻辑推进频率，决定蛇移动速度。
 const TICK_RATE: Duration = Duration::from_millis(160);
 
+/// 应用层状态，负责协调终端、输入和游戏循环。
 pub struct App {
     game: GameState,
     should_quit: bool,

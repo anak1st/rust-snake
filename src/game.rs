@@ -2,13 +2,18 @@ use std::collections::VecDeque;
 
 use rand::Rng;
 
+/// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunState {
+    /// 游戏正常进行中。
     Running,
+    /// 游戏已暂停，tick 不再推进。
     Paused,
+    /// 游戏已结束，等待重开。
     GameOver,
 }
 
+/// 表示蛇当前或下一步的移动方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Up,
@@ -17,21 +22,32 @@ pub enum Direction {
     Right,
 }
 
+/// 表示棋盘上的一个网格坐标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
     pub x: u16,
     pub y: u16,
 }
 
+/// 封装一局贪吃蛇的完整状态。
 pub struct GameState {
+    /// 棋盘宽度，单位为网格数。
     width: u16,
+    /// 棋盘高度，单位为网格数。
     height: u16,
+    /// 已推进的逻辑帧数。
     tick_count: u64,
+    /// 当前累计得分。
     score: u32,
+    /// 游戏当前运行状态。
     state: RunState,
+    /// 当前已经生效的移动方向。
     direction: Direction,
+    /// 玩家最新输入、将在下一帧生效的方向。
     pending_direction: Direction,
+    /// 蛇身坐标队列，尾部在前，头部在后。
     snake: VecDeque<Position>,
+    /// 当前食物所在位置。
     food: Position,
 }
 
