@@ -11,7 +11,7 @@ const HEADER_HEIGHT: u16 = 3;
 /// 底部帮助栏的固定高度。
 const FOOTER_HEIGHT: u16 = 3;
 /// 状态信息区域的固定高度。
-const INFO_HEIGHT: u16 = 9;
+const INFO_HEIGHT: u16 = 4;
 /// 允许的最小棋盘宽度，避免窗口过小时不可玩。
 const MIN_BOARD_WIDTH: u16 = 10;
 /// 允许的最小棋盘高度，避免窗口过小时不可玩。
@@ -84,35 +84,30 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
                 game.tick_count().to_string(),
                 style_with_color(TEXT_COLOR, no_color).add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![
+            Span::raw("  "),
             Span::styled("Score: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.score().to_string(),
                 style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![
+            Span::raw("  "),
             Span::styled("Enemy: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.enemy_score().to_string(),
                 style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
-        Line::from(""),
         Line::from(vec![
             Span::styled("State: ", style_with_color(MUTED_COLOR, no_color)),
             status_text,
-        ]),
-        Line::from(vec![
-            Span::styled("Direction: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::raw("  "),
+            Span::styled("Dir: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 direction_text,
                 style_with_color(Color::LightBlue, no_color).add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![
-            Span::styled("AI Dir: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::raw("  "),
+            Span::styled("AI: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 enemy_direction_text,
                 style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
@@ -159,8 +154,11 @@ fn min_terminal_height() -> u16 {
 
 /// 按当前状态绘制棋盘区域，提示页使用居中的内容块。
 fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, no_color: bool) {
-    let board = Paragraph::new(render_live_board(game, no_color))
-        .block(styled_block("Board", Color::Green, no_color));
+    let board = Paragraph::new(render_live_board(game, no_color)).block(styled_block(
+        "Board",
+        Color::Green,
+        no_color,
+    ));
     frame.render_widget(board, area);
 
     match game.run_state() {
@@ -169,15 +167,29 @@ fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, 
             frame,
             area,
             "Ready",
-            &["Rust Snake", "", "按 Enter、Space 或方向键开始", "使用 WASD 或方向键控制移动", "按 q 可随时退出"],
+            &[
+                "Rust Snake",
+                "",
+                "按 Enter、Space 或方向键开始",
+                "使用 WASD 或方向键控制移动",
+                "按 q 可随时退出",
+            ],
             no_color,
         ),
-        RunState::Paused => {
-            draw_message_popup(frame, area, "Paused", &["游戏已暂停", "", "按 Space 继续"], no_color)
-        }
-        RunState::GameOver => {
-            draw_message_popup(frame, area, "Game Over", &["游戏结束", "", "按 r 重新开始"], no_color)
-        }
+        RunState::Paused => draw_message_popup(
+            frame,
+            area,
+            "Paused",
+            &["游戏已暂停", "", "按 Space 继续"],
+            no_color,
+        ),
+        RunState::GameOver => draw_message_popup(
+            frame,
+            area,
+            "Game Over",
+            &["游戏结束", "", "按 r 重新开始"],
+            no_color,
+        ),
     }
 }
 
@@ -204,14 +216,20 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
         for x in 0..width {
             let position = Position { x, y };
             let cell = if Some(position) == player_head {
-                Span::styled("@", style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "@",
+                    style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
+                )
             } else if Some(position) == enemy_head {
                 Span::styled(
                     "X",
                     style_with_color(ENEMY_HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if game.foods().contains(&position) {
-                Span::styled("*", style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "*",
+                    style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD),
+                )
             } else if game.snake().contains(&position) {
                 Span::styled("o", style_with_color(BODY_COLOR, no_color))
             } else if game.enemy_snake().contains(&position) {
@@ -258,14 +276,24 @@ fn draw_too_small(frame: &mut Frame, no_color: bool) {
             style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(Span::styled("请放大终端后继续游戏", style_with_color(TEXT_COLOR, no_color))),
+        Line::from(Span::styled(
+            "请放大终端后继续游戏",
+            style_with_color(TEXT_COLOR, no_color),
+        )),
         Line::from(Span::styled(
             "调整到足够大小后会自动重开",
             style_with_color(TEXT_COLOR, no_color),
         )),
-        Line::from(Span::styled("按 q 退出", style_with_color(MUTED_COLOR, no_color))),
+        Line::from(Span::styled(
+            "按 q 退出",
+            style_with_color(MUTED_COLOR, no_color),
+        )),
     ])
-    .block(styled_block("Window Too Small", Color::LightYellow, no_color));
+    .block(styled_block(
+        "Window Too Small",
+        Color::LightYellow,
+        no_color,
+    ));
 
     frame.render_widget(Clear, area);
     frame.render_widget(popup, popup_area);

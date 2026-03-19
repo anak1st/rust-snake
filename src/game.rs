@@ -292,7 +292,7 @@ impl GameState {
 
     fn choose_enemy_direction(&self) -> Direction {
         let mut rng = rand::rng();
-        if rng.random_range(0..100) < 40 {
+        if rng.random_range(0..100) < 15 {
             return self.random_walk_direction(rng);
         }
 
