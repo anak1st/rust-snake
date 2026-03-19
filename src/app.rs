@@ -22,6 +22,7 @@ pub struct App {
 }
 
 impl App {
+    /// 创建应用实例，并初始化默认游戏状态。
     pub fn new() -> Self {
         Self {
             game: GameState::new(),
@@ -29,6 +30,7 @@ impl App {
         }
     }
 
+    /// 初始化终端环境并运行主循环，退出时负责恢复终端状态。
     pub fn run(&mut self) -> Result<()> {
         let mut terminal = setup_terminal()?;
         self.resize_game_to_terminal(terminal.size()?.into());
@@ -37,6 +39,7 @@ impl App {
         result
     }
 
+    /// 驱动渲染、输入处理和固定 tick 更新。
     fn run_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         let mut last_tick = Instant::now();
 
@@ -57,11 +60,13 @@ impl App {
         Ok(())
     }
 
+    /// 按当前终端可用区域重新计算棋盘尺寸，并重开一局。
     fn resize_game_to_terminal(&mut self, area: Rect) {
         let (width, height) = board_size_for_terminal(area.width, area.height);
         self.game.restart_with_board_size(width, height);
     }
 
+    /// 统一处理键盘和窗口尺寸变化事件。
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key) => {
@@ -91,6 +96,7 @@ impl App {
     }
 }
 
+/// 开启 raw mode 和备用屏，创建 ratatui 终端实例。
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -100,6 +106,7 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     Ok(terminal)
 }
 
+/// 恢复终端模式，避免程序退出后终端状态异常。
 fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;

@@ -12,6 +12,7 @@ const INFO_HEIGHT: u16 = 6;
 const MIN_BOARD_WIDTH: u16 = 10;
 const MIN_BOARD_HEIGHT: u16 = 6;
 
+/// 根据当前游戏状态绘制整个界面。
 pub fn draw(frame: &mut Frame, game: &GameState) {
     let [header_area, body_area, footer_area] = Layout::default()
         .direction(Direction::Vertical)
@@ -75,6 +76,7 @@ pub fn draw(frame: &mut Frame, game: &GameState) {
     frame.render_widget(footer, footer_area);
 }
 
+/// 根据终端尺寸估算可用棋盘大小，并保留最小可玩尺寸。
 pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
     let board_width = width.saturating_sub(2).max(MIN_BOARD_WIDTH);
     let board_height = height
@@ -84,6 +86,7 @@ pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
     (board_width, board_height)
 }
 
+/// 把当前游戏棋盘转换成逐行渲染的文本内容。
 fn render_board_lines(game: &GameState) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
     let head = game.snake().back().copied();
