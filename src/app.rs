@@ -7,9 +7,9 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
-use ratatui::Terminal;
 
 use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
@@ -50,7 +50,9 @@ impl App {
         let mut last_tick = Instant::now();
 
         while !self.should_quit {
-            terminal.draw(|frame| render::draw(frame, &self.game, self.window_too_small, self.no_color))?;
+            terminal.draw(|frame| {
+                render::draw(frame, &self.game, self.window_too_small, self.no_color)
+            })?;
 
             let timeout = TICK_RATE.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {

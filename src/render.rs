@@ -1,10 +1,10 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
-use crate::game::{Direction as SnakeDirection, GameState, Position, RunState};
+use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, Position, RunState};
 
 /// 顶部标题栏的固定高度。
 const HEADER_HEIGHT: u16 = 3;
@@ -24,10 +24,6 @@ const MUTED_COLOR: Color = Color::DarkGray;
 const HEAD_COLOR: Color = Color::LightGreen;
 /// 蛇身的主体颜色。
 const BODY_COLOR: Color = Color::Green;
-/// 敌蛇蛇头的高亮颜色。
-const ENEMY_HEAD_COLOR: Color = Color::LightMagenta;
-/// 敌蛇蛇身的主体颜色。
-const ENEMY_BODY_COLOR: Color = Color::Magenta;
 /// 食物的强调颜色。
 const FOOD_COLOR: Color = Color::LightRed;
 
@@ -70,12 +66,7 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
         SnakeDirection::Left => "Left",
         SnakeDirection::Right => "Right",
     };
-    let enemy_direction_text = match game.enemy_direction() {
-        SnakeDirection::Up => "Up",
-        SnakeDirection::Down => "Down",
-        SnakeDirection::Left => "Left",
-        SnakeDirection::Right => "Right",
-    };
+    let ai_direction_text = format_enemy_directions(game.enemies());
 
     let info = Paragraph::new(vec![
         Line::from(vec![
@@ -96,6 +87,12 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
                 game.enemy_score().to_string(),
                 style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
+            Span::raw("  "),
+            Span::styled("AI: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::styled(
+                game.enemy_count().to_string(),
+                style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(vec![
             Span::styled("State: ", style_with_color(MUTED_COLOR, no_color)),
@@ -107,9 +104,9 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
                 style_with_color(Color::LightBlue, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
-            Span::styled("AI: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::styled("AI Dir: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
-                enemy_direction_text,
+                ai_direction_text,
                 style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
         ]),
@@ -207,7 +204,6 @@ fn help_text(state: RunState) -> &'static str {
 fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
     let player_head = game.snake().back().copied();
-    let enemy_head = game.enemy_snake().back().copied();
     let mut rows = Vec::with_capacity(height as usize);
 
     for y in 0..height {
@@ -220,11 +216,6 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                     "@",
                     style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
-            } else if Some(position) == enemy_head {
-                Span::styled(
-                    "X",
-                    style_with_color(ENEMY_HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
-                )
             } else if game.foods().contains(&position) {
                 Span::styled(
                     "*",
@@ -232,8 +223,15 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                 )
             } else if game.snake().contains(&position) {
                 Span::styled("o", style_with_color(BODY_COLOR, no_color))
-            } else if game.enemy_snake().contains(&position) {
-                Span::styled("x", style_with_color(ENEMY_BODY_COLOR, no_color))
+            } else if let Some((enemy_index, is_head)) = enemy_cell(game.enemies(), position) {
+                let (glyph, color) = enemy_style(enemy_index, is_head);
+                let style = if is_head {
+                    style_with_color(color, no_color).add_modifier(Modifier::BOLD)
+                } else {
+                    style_with_color(color, no_color)
+                };
+
+                Span::styled(glyph, style)
             } else {
                 Span::styled("·", style_with_color(MUTED_COLOR, no_color))
             };
@@ -245,6 +243,88 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     }
 
     rows
+}
+
+fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
+    enemies
+        .iter()
+        .enumerate()
+        .map(|(index, enemy)| {
+            format!(
+                "{}{}",
+                enemy_label(index),
+                direction_label(enemy.direction())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn direction_label(direction: SnakeDirection) -> &'static str {
+    match direction {
+        SnakeDirection::Up => "^",
+        SnakeDirection::Down => "v",
+        SnakeDirection::Left => "<",
+        SnakeDirection::Right => ">",
+    }
+}
+
+fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(usize, bool)> {
+    enemies.iter().enumerate().find_map(|(index, enemy)| {
+        if Some(position) == enemy.body().back().copied() {
+            Some((index, true))
+        } else if enemy.body().contains(&position) {
+            Some((index, false))
+        } else {
+            None
+        }
+    })
+}
+
+fn enemy_style(index: usize, is_head: bool) -> (&'static str, Color) {
+    const HEAD_COLORS: [Color; 4] = [
+        Color::LightMagenta,
+        Color::LightCyan,
+        Color::LightYellow,
+        Color::LightRed,
+    ];
+    const BODY_COLORS: [Color; 4] = [Color::Magenta, Color::Cyan, Color::Yellow, Color::Red];
+
+    let label = enemy_label(index);
+    let glyph = if is_head {
+        label
+    } else {
+        enemy_body_label(index)
+    };
+    let color = if is_head {
+        HEAD_COLORS[index % HEAD_COLORS.len()]
+    } else {
+        BODY_COLORS[index % BODY_COLORS.len()]
+    };
+
+    (glyph, color)
+}
+
+fn enemy_label(index: usize) -> &'static str {
+    match index % 6 {
+        0 => "A",
+        1 => "B",
+        2 => "C",
+        3 => "D",
+        4 => "E",
+        _ => "F",
+    }
+}
+
+fn enemy_body_label(index: usize) -> &'static str {
+    match index % 6 {
+        0 => "a",
+        1 => "b",
+        2 => "c",
+        3 => "d",
+        4 => "e",
+        _ => "f",
+    }
 }
 
 /// 在棋盘中央绘制一个整体居中、段内左对齐的提示面板。
