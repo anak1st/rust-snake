@@ -19,13 +19,15 @@ pub mod game {
     /// 默认同时生成的炸弹数量。
     pub const BOMB_COUNT: usize = 2;
     /// 普通食物提供的增长节数。
-    pub const FOOD_GROWTH_AMOUNT: u16 = 2;
+    pub const FOOD_GROWTH_AMOUNT: u16 = 1;
     /// 普通食物提供的分数。
-    pub const FOOD_SCORE_GAIN: u32 = 2;
+    pub const FOOD_SCORE_GAIN: u32 = 1;
     /// 超级食物提供的增长节数。
-    pub const SUPER_FOOD_GROWTH_AMOUNT: u16 = 8;
+    pub const SUPER_FOOD_GROWTH_AMOUNT: u16 = 4;
     /// 超级食物提供的分数。
-    pub const SUPER_FOOD_SCORE_GAIN: u32 = 8;
+    pub const SUPER_FOOD_SCORE_GAIN: u32 = 4;
+    /// AI 对非撞墙风险的规避概率，`100` 表示总会躲避，`0` 表示完全不躲。
+    pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 65;
 }
 
 /// 渲染布局相关配置。

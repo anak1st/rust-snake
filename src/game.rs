@@ -3,9 +3,9 @@ use ratatui::style::Color;
 use std::collections::VecDeque;
 
 use crate::config::game::{
-    AI_SNAKE_COUNT, BOMB_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WIDTH, FOOD_COUNT,
-    FOOD_GROWTH_AMOUNT, FOOD_SCORE_GAIN, SUPER_FOOD_COUNT, SUPER_FOOD_GROWTH_AMOUNT,
-    SUPER_FOOD_SCORE_GAIN,
+    AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT, AI_SNAKE_COUNT, BOMB_COUNT, DEFAULT_BOARD_HEIGHT,
+    DEFAULT_BOARD_WIDTH, FOOD_COUNT, FOOD_GROWTH_AMOUNT, FOOD_SCORE_GAIN, SUPER_FOOD_COUNT,
+    SUPER_FOOD_GROWTH_AMOUNT, SUPER_FOOD_SCORE_GAIN,
 };
 
 /// 表示游戏当前所处的运行阶段。
@@ -965,9 +965,8 @@ impl GameState {
     ///
     /// 安全意味着下一步位置：
     /// 1. 不超出棋盘边界（不是撞墙）
-    /// 2. 不撞到炸弹
-    /// 3. 不与自己的身体重叠
-    /// 4. 不直接撞到其他蛇的蛇头
+    /// 2. 不撞到自己的身体
+    /// 3. 其余危险（炸弹、玩家身体、其他蛇身体）按概率选择是否躲避
     ///
     /// 注意：这里不检查该位置是否与食物重叠，因为吃食物是好事。
     /// 注意：不检查自己是否会吃食物（尾巴规则），因为吃食物后尾巴会扩展。
@@ -977,27 +976,29 @@ impl GameState {
             return false;
         }
 
-        if self.bombs.contains(&next) {
-            return false;
-        }
-
         // 检查是否撞到自己的尾巴（假设自己不会吃食物）
         if self.occupies_with_tail_rules(self.enemies[enemy_index].body(), next, false) {
             return false;
         }
 
-        // 检查是否直接撞到玩家蛇。
-        if self.player_occupies_position(next, 0) {
-            return false;
-        }
+        let hits_non_wall_hazard = self.bombs.contains(&next)
+            // 检查是否直接撞到玩家蛇。
+            || self.player_occupies_position(next, 0)
+            // 检查是否直接撞到其他 AI 蛇。
+            || self.enemies.iter().enumerate().any(|(other_index, _)| {
+                other_index != enemy_index && self.enemy_occupies_position(other_index, next, &[])
+            });
 
-        // 检查是否直接撞到其他 AI 蛇。
-        !self.enemies.iter().enumerate().any(|(other_index, _)| {
-            other_index != enemy_index && self.enemy_occupies_position(other_index, next, &[])
-        })
+        !hits_non_wall_hazard || !self.enemy_avoids_non_wall_hazard()
     }
 
-    /// 让 AI 重生到远离玩家的位置，避免卡死后整局无法继续。
+    /// AI 是否会主动规避一次非撞墙风险。
+    fn enemy_avoids_non_wall_hazard(&self) -> bool {
+        let mut rng = rand::rng();
+        rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
+    }
+
+    /// 让 AI 重生到预设角落位置，避免出生点过于随机。
     fn respawn_enemy(&mut self, enemy_index: usize) {
         let score = self.enemies[enemy_index].snake.score;
 
@@ -1009,56 +1010,74 @@ impl GameState {
         }
     }
 
-    /// 尝试在指定 slot 位置生成一条 AI 蛇。
+    /// 尝试在指定 slot 对应的角落生成一条 AI 蛇。
     ///
-    /// 这个函数用于初始化时生成多条 AI。它会尝试把 AI 放置在
-    /// 远离玩家的位置，实现分散spawn的效果。
-    ///
-    /// **算法步骤**：
-    /// 1. 棋盘尺寸过小时直接返回 None
-    /// 2. 按与玩家所在行的距离对所有行排序，距离远的优先
-    /// 3. 对排序后的每行，从右到左尝试放置水平蛇身
-    /// 4. 检查放置位置是否有效（不与玩家、食物、其他 AI 重叠）
-    /// 5. 如果都没成功，fallback 到 `try_spawn_enemy` 随机生成
+    /// 角落顺序为：左上、右上、左下、右下。
+    /// 每个角落会优先尝试能朝棋盘内部移动的预设形态；
+    /// 如果预设角落不可用，再 fallback 到随机生成。
     fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<EnemySnake> {
-        // 棋盘太小无法放置 AI 蛇，直接返回 None
         if self.width < 3 && self.height < 3 {
             return None;
         }
 
-        // 获取玩家所在的行
-        let player_row = self.player_head().y;
-
-        // 生成所有行的列表，并按与玩家距离排序（距离远的优先）
-        let mut rows = (0..self.height).collect::<Vec<_>>();
-        rows.sort_by_key(|row| row.abs_diff(player_row));
-        rows.reverse();
-
-        // 通过轮转实现多个 slot 之间的分散
-        let row_count = rows.len();
-        if row_count > 0 {
-            rows.rotate_left(slot % row_count);
-        }
-
-        // 遍历每行，从右到左尝试放置水平蛇身
-        for y in rows {
-            for head_x in (0..=self.width.saturating_sub(3)).rev() {
-                // 创建一条水平放置的敌蛇，头部朝左
-                let enemy = EnemySnake::new(
-                    Self::horizontal_enemy_body(head_x, y),
-                    Direction::Left,
-                    SnakeAppearance::for_slot(slot),
-                );
-
-                // 检查放置位置是否有效
-                if self.enemy_spawn_is_valid(enemy.body()) {
-                    return Some(enemy);
-                }
+        for (body, direction) in self.corner_spawn_candidates(slot) {
+            let enemy = EnemySnake::new(body, direction, SnakeAppearance::for_slot(slot));
+            if self.enemy_spawn_is_valid(enemy.body()) {
+                return Some(enemy);
             }
         }
 
-        // 所有预定位置都无效，fallback 到随机生成
         self.try_spawn_enemy(slot)
+    }
+
+    /// 返回指定 slot 在角落处的候选出生形态。
+    fn corner_spawn_candidates(&self, slot: usize) -> Vec<(VecDeque<Position>, Direction)> {
+        let corner_index = slot % 4;
+        let mut candidates = Vec::with_capacity(2);
+
+        if self.height >= 3 {
+            candidates.push(match corner_index {
+                0 => (Self::vertical_enemy_body(0, 0), Direction::Down),
+                1 => (
+                    Self::vertical_enemy_body(self.width.saturating_sub(1), 0),
+                    Direction::Down,
+                ),
+                2 => (
+                    Self::vertical_enemy_body_from_bottom(0, self.height.saturating_sub(1)),
+                    Direction::Up,
+                ),
+                _ => (
+                    Self::vertical_enemy_body_from_bottom(
+                        self.width.saturating_sub(1),
+                        self.height.saturating_sub(1),
+                    ),
+                    Direction::Up,
+                ),
+            });
+        }
+
+        if self.width >= 3 {
+            candidates.push(match corner_index {
+                0 => (Self::horizontal_enemy_body(0, 0), Direction::Right),
+                1 => (
+                    Self::horizontal_enemy_body_from_right(self.width.saturating_sub(1), 0),
+                    Direction::Left,
+                ),
+                2 => (
+                    Self::horizontal_enemy_body(0, self.height.saturating_sub(1)),
+                    Direction::Right,
+                ),
+                _ => (
+                    Self::horizontal_enemy_body_from_right(
+                        self.width.saturating_sub(1),
+                        self.height.saturating_sub(1),
+                    ),
+                    Direction::Left,
+                ),
+            });
+        }
+
+        candidates
     }
 
     /// 随机尝试生成一条 AI 蛇，最多尝试 256 次。
@@ -1331,14 +1350,14 @@ impl GameState {
         }
     }
 
-    /// 将死亡蛇的身体转成高价值能量点，供其他蛇争夺。
+    /// 将死亡蛇的身体转成普通食物，供其他蛇争夺。
     fn drop_legacy_from_body(&mut self, body: &VecDeque<Position>) {
         for &segment in body {
             if !self.foods.contains(&segment)
                 && !self.super_foods.contains(&segment)
                 && !self.bombs.contains(&segment)
             {
-                self.super_foods.push(segment);
+                self.foods.push(segment);
             }
         }
     }
@@ -1454,6 +1473,45 @@ impl GameState {
         snake.push_back(Position { x: head_x + 2, y });
         snake.push_back(Position { x: head_x + 1, y });
         snake.push_back(Position { x: head_x, y });
+        snake
+    }
+
+    /// 生成一条从右向左延伸的水平蛇身。
+    fn horizontal_enemy_body_from_right(head_x: u16, y: u16) -> VecDeque<Position> {
+        let mut snake = VecDeque::new();
+        snake.push_back(Position {
+            x: head_x.saturating_sub(2),
+            y,
+        });
+        snake.push_back(Position {
+            x: head_x.saturating_sub(1),
+            y,
+        });
+        snake.push_back(Position { x: head_x, y });
+        snake
+    }
+
+    /// 生成一条从上向下延伸的垂直蛇身。
+    fn vertical_enemy_body(x: u16, head_y: u16) -> VecDeque<Position> {
+        let mut snake = VecDeque::new();
+        snake.push_back(Position { x, y: head_y + 2 });
+        snake.push_back(Position { x, y: head_y + 1 });
+        snake.push_back(Position { x, y: head_y });
+        snake
+    }
+
+    /// 生成一条从下向上延伸的垂直蛇身。
+    fn vertical_enemy_body_from_bottom(x: u16, head_y: u16) -> VecDeque<Position> {
+        let mut snake = VecDeque::new();
+        snake.push_back(Position {
+            x,
+            y: head_y.saturating_sub(2),
+        });
+        snake.push_back(Position {
+            x,
+            y: head_y.saturating_sub(1),
+        });
+        snake.push_back(Position { x, y: head_y });
         snake
     }
 
@@ -1573,6 +1631,33 @@ mod tests {
     }
 
     #[test]
+    /// 验证四条初始敌蛇优先出生在棋盘四个角落。
+    fn enemy_snakes_spawn_in_four_corners() {
+        let game = GameState::with_board_size(20, 10);
+
+        assert!(
+            game.enemies()
+                .iter()
+                .any(|enemy| enemy.head() == Position { x: 0, y: 0 })
+        );
+        assert!(
+            game.enemies()
+                .iter()
+                .any(|enemy| { enemy.head() == Position { x: 19, y: 0 } })
+        );
+        assert!(
+            game.enemies()
+                .iter()
+                .any(|enemy| { enemy.head() == Position { x: 0, y: 9 } })
+        );
+        assert!(
+            game.enemies()
+                .iter()
+                .any(|enemy| { enemy.head() == Position { x: 19, y: 9 } })
+        );
+    }
+
+    #[test]
     /// 验证玩家吃到炸弹后会立即结束游戏。
     fn bomb_ends_game_for_player() {
         let mut game = GameState::with_board_size(12, 8);
@@ -1608,7 +1693,7 @@ mod tests {
     }
 
     #[test]
-    /// 验证蛇死亡后，其身体会化成高价值能量点留在棋盘上。
+    /// 验证蛇死亡后，其身体会化成普通食物留在棋盘上。
     fn crashing_into_enemy_drops_legacy() {
         let mut game = GameState::with_board_size(16, 8);
         game.foods.clear();
@@ -1637,10 +1722,9 @@ mod tests {
         assert_eq!(game.run_state(), RunState::GameOver);
         assert_eq!(game.player().body().len(), 3);
         assert_eq!(game.enemies()[0].score(), 0);
-        assert_eq!(game.super_foods().len(), 3);
-        assert!(game.super_foods().contains(&Position { x: 1, y: 4 }));
-        assert!(game.super_foods().contains(&Position { x: 2, y: 4 }));
-        assert!(game.super_foods().contains(&Position { x: 3, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 1, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 2, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 3, y: 4 }));
     }
 
     #[test]
@@ -1671,10 +1755,9 @@ mod tests {
         game.tick();
 
         assert_eq!(game.run_state(), RunState::GameOver);
-        assert_eq!(game.super_foods().len(), 3);
-        assert!(game.super_foods().contains(&Position { x: 3, y: 4 }));
-        assert!(game.super_foods().contains(&Position { x: 4, y: 4 }));
-        assert!(game.super_foods().contains(&Position { x: 5, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 3, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 4, y: 4 }));
+        assert!(game.foods().contains(&Position { x: 5, y: 4 }));
     }
 
     #[test]
