@@ -11,7 +11,7 @@ pub mod game {
     /// 默认棋盘高度。
     pub const DEFAULT_BOARD_HEIGHT: u16 = 12;
     /// 默认生成的 AI 敌蛇数量。
-    pub const AI_SNAKE_COUNT: usize = 3;
+    pub const AI_SNAKE_COUNT: usize = 4;
     /// 默认同时生成的食物数量。
     pub const FOOD_COUNT: usize = 4;
     /// 默认同时生成的超级食物数量。
@@ -19,13 +19,13 @@ pub mod game {
     /// 默认同时生成的炸弹数量。
     pub const BOMB_COUNT: usize = 2;
     /// 普通食物提供的增长节数。
-    pub const FOOD_GROWTH_AMOUNT: u16 = 1;
+    pub const FOOD_GROWTH_AMOUNT: u16 = 2;
     /// 普通食物提供的分数。
-    pub const FOOD_SCORE_GAIN: u32 = 1;
+    pub const FOOD_SCORE_GAIN: u32 = 2;
     /// 超级食物提供的增长节数。
-    pub const SUPER_FOOD_GROWTH_AMOUNT: u16 = 3;
+    pub const SUPER_FOOD_GROWTH_AMOUNT: u16 = 8;
     /// 超级食物提供的分数。
-    pub const SUPER_FOOD_SCORE_GAIN: u32 = 3;
+    pub const SUPER_FOOD_SCORE_GAIN: u32 = 8;
 }
 
 /// 渲染布局相关配置。
