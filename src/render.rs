@@ -119,17 +119,17 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
                 style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
-            Span::styled("Enemy: ", style_with_color(MUTED_COLOR, no_color)),
-            Span::styled(
-                ai_scores_text,
-                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled("AI: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::styled("Enemy Count: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.enemy_count().to_string(),
                 style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD),
             ),
+            Span::raw("  "),
+            Span::styled("Enemy Score: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::styled(
+                ai_scores_text,
+                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
+            ), 
         ]),
         Line::from(vec![
             Span::styled("State: ", style_with_color(MUTED_COLOR, no_color)),
