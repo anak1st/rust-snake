@@ -36,26 +36,9 @@ pub struct Position {
     pub y: u16,
 }
 
-/// 单条 AI 敌蛇的完整状态。
-#[derive(Debug, Clone)]
-pub struct EnemySnake {
-    /// AI 已生效的移动方向。
-    direction: Direction,
-    /// 随机漫步剩余步数，为 0 时表示追逐食物。
-    random_walk_steps: u8,
-    /// 随机漫步方向。
-    random_walk_direction: Option<Direction>,
-    /// AI 蛇身，尾部在前、头部在后。
-    body: VecDeque<Position>,
-    /// 该 AI 的累计得分。
-    score: u32,
-    /// 该 AI 的固定外观配置。
-    appearance: EnemyAppearance,
-}
-
-/// AI 蛇的固定外观信息。
+/// 蛇的固定外观信息。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EnemyAppearance {
+pub struct SnakeAppearance {
     /// 蛇头显示符号。
     head_glyph: &'static str,
     /// 蛇身显示符号。
@@ -66,61 +49,188 @@ pub struct EnemyAppearance {
     body_color: Color,
 }
 
-impl EnemySnake {
-    /// 创建一条新的 AI 蛇，初始随机漫步步数为 0。
-    fn new(body: VecDeque<Position>, direction: Direction, appearance: EnemyAppearance) -> Self {
+/// 玩家和 AI 共用的基础蛇状态。
+#[derive(Debug, Clone)]
+pub struct Snake {
+    /// 当前已生效的移动方向。
+    direction: Direction,
+    /// 蛇身，尾部在前、头部在后。
+    body: VecDeque<Position>,
+    /// 当前累计得分。
+    score: u32,
+    /// 该蛇的固定外观配置。
+    appearance: SnakeAppearance,
+}
+
+/// 玩家蛇的完整状态。
+#[derive(Debug, Clone)]
+pub struct PlayerSnake {
+    /// 基础蛇状态。
+    snake: Snake,
+    /// 玩家最新输入、将在下一帧生效的方向。
+    pending_direction: Direction,
+}
+
+/// 单条 AI 敌蛇的完整状态。
+#[derive(Debug, Clone)]
+pub struct EnemySnake {
+    /// 基础蛇状态。
+    snake: Snake,
+    /// 随机漫步剩余步数，为 0 时表示追逐食物。
+    random_walk_steps: u8,
+    /// 随机漫步方向。
+    random_walk_direction: Option<Direction>,
+}
+
+impl Snake {
+    /// 创建一条新的蛇。
+    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
         Self {
             direction,
-            random_walk_steps: 0,
-            random_walk_direction: None,
             body,
             score: 0,
             appearance,
         }
     }
 
-    /// 返回 AI 当前移动方向。
+    /// 返回当前移动方向。
     pub fn direction(&self) -> Direction {
         self.direction
     }
 
-    /// 返回 AI 蛇身坐标。
+    /// 返回蛇身坐标。
     pub fn body(&self) -> &VecDeque<Position> {
         &self.body
     }
 
-    /// 返回 AI 当前累计得分。
+    /// 返回累计得分。
     pub fn score(&self) -> u32 {
         self.score
     }
 
-    /// 返回 AI 蛇头符号。
+    /// 返回蛇头符号。
     pub fn head_glyph(&self) -> &'static str {
         self.appearance.head_glyph
     }
 
-    /// 返回 AI 蛇身符号。
+    /// 返回蛇身符号。
     pub fn body_glyph(&self) -> &'static str {
         self.appearance.body_glyph
     }
 
-    /// 返回 AI 蛇头颜色。
+    /// 返回蛇头颜色。
     pub fn head_color(&self) -> Color {
         self.appearance.head_color
     }
 
-    /// 返回 AI 蛇身颜色。
+    /// 返回蛇身颜色。
     pub fn body_color(&self) -> Color {
         self.appearance.body_color
     }
 
-    /// 返回 AI 蛇头位置。如果身体为空，返回 (0, 0)。
+    /// 返回蛇头位置。如果身体为空，返回 (0, 0)。
     fn head(&self) -> Position {
         self.body.back().copied().unwrap_or(Position { x: 0, y: 0 })
     }
 }
 
-impl EnemyAppearance {
+impl PlayerSnake {
+    /// 创建玩家蛇。
+    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
+        Self {
+            snake: Snake::new(body, direction, appearance),
+            pending_direction: direction,
+        }
+    }
+
+    /// 返回玩家当前已生效方向。
+    pub fn direction(&self) -> Direction {
+        self.snake.direction()
+    }
+
+    /// 返回玩家待生效方向。
+    fn pending_direction(&self) -> Direction {
+        self.pending_direction
+    }
+
+    /// 返回玩家蛇身坐标。
+    pub fn body(&self) -> &VecDeque<Position> {
+        self.snake.body()
+    }
+
+    /// 返回玩家当前得分。
+    pub fn score(&self) -> u32 {
+        self.snake.score()
+    }
+
+    /// 返回玩家蛇头位置。
+    fn head(&self) -> Position {
+        self.snake.head()
+    }
+}
+
+impl EnemySnake {
+    /// 创建一条新的 AI 蛇，初始随机漫步步数为 0。
+    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
+        Self {
+            snake: Snake::new(body, direction, appearance),
+            random_walk_steps: 0,
+            random_walk_direction: None,
+        }
+    }
+
+    /// 返回 AI 当前移动方向。
+    pub fn direction(&self) -> Direction {
+        self.snake.direction()
+    }
+
+    /// 返回 AI 蛇身坐标。
+    pub fn body(&self) -> &VecDeque<Position> {
+        self.snake.body()
+    }
+
+    /// 返回 AI 当前累计得分。
+    pub fn score(&self) -> u32 {
+        self.snake.score()
+    }
+
+    /// 返回 AI 蛇头符号。
+    pub fn head_glyph(&self) -> &'static str {
+        self.snake.head_glyph()
+    }
+
+    /// 返回 AI 蛇身符号。
+    pub fn body_glyph(&self) -> &'static str {
+        self.snake.body_glyph()
+    }
+
+    /// 返回 AI 蛇头颜色。
+    pub fn head_color(&self) -> Color {
+        self.snake.head_color()
+    }
+
+    /// 返回 AI 蛇身颜色。
+    pub fn body_color(&self) -> Color {
+        self.snake.body_color()
+    }
+
+    /// 返回 AI 蛇头位置。如果身体为空，返回 (0, 0)。
+    fn head(&self) -> Position {
+        self.snake.head()
+    }
+}
+
+impl SnakeAppearance {
+    /// 返回玩家蛇的外观配置。
+    fn player() -> Self {
+        Self {
+            head_glyph: "@",
+            body_glyph: "o",
+            head_color: Color::White,
+            body_color: Color::White,
+        }
+    }
+
     /// 按固定槽位返回 AI 的外观配置。
     fn for_slot(slot: usize) -> Self {
         match slot % 6 {
@@ -187,16 +297,10 @@ pub struct GameState {
     height: u16,
     /// 已推进的逻辑帧数。
     tick_count: u64,
-    /// 玩家累计得分。
-    score: u32,
     /// 游戏当前运行状态。
     state: RunState,
-    /// 玩家当前已经生效的移动方向。
-    direction: Direction,
-    /// 玩家最新输入、将在下一帧生效的方向。
-    pending_direction: Direction,
-    /// 玩家蛇身坐标队列，尾部在前，头部在后。
-    snake: VecDeque<Position>,
+    /// 玩家蛇。
+    player: PlayerSnake,
     /// 所有 AI 敌蛇。
     enemies: Vec<EnemySnake>,
     /// 当前棋盘上的所有食物位置。
@@ -214,17 +318,18 @@ impl GameState {
 
     /// 按指定棋盘尺寸初始化一局新游戏。
     pub fn with_board_size(width: u16, height: u16) -> Self {
-        let snake = Self::spawn_player_snake(width, height);
+        let player = PlayerSnake::new(
+            Self::spawn_player_snake(width, height),
+            Direction::Right,
+            SnakeAppearance::player(),
+        );
 
         let mut game = Self {
             width,
             height,
             tick_count: 0,
-            score: 0,
             state: RunState::Ready,
-            direction: Direction::Right,
-            pending_direction: Direction::Right,
-            snake,
+            player,
             enemies: Vec::with_capacity(AI_SNAKE_COUNT),
             foods: Vec::new(),
         };
@@ -280,10 +385,10 @@ impl GameState {
         }
 
         // 将待生效的方向同步为实际生效的方向
-        self.direction = self.pending_direction;
+        self.player.snake.direction = self.player.pending_direction();
 
         // 计算玩家下一步的位置，并判断是否会吃到食物
-        let player_next = self.next_position(self.player_head(), self.direction);
+        let player_next = self.next_position(self.player_head(), self.player.direction());
         let player_eats = self.foods.contains(&player_next);
 
         // 为所有 AI 预规划下一步的移动（方向、是否吃食物等）
@@ -352,11 +457,11 @@ impl GameState {
 
     /// 更新玩家下一次移动方向，并忽略直接反向输入。
     pub fn set_direction(&mut self, direction: Direction) {
-        if Self::is_opposite(self.direction, direction) {
+        if Self::is_opposite(self.player.direction(), direction) {
             return;
         }
 
-        self.pending_direction = direction;
+        self.player.pending_direction = direction;
     }
 
     /// 返回当前棋盘尺寸。
@@ -371,7 +476,7 @@ impl GameState {
 
     /// 返回玩家当前分数。
     pub fn score(&self) -> u32 {
-        self.score
+        self.player.score()
     }
 
     /// 返回 AI 数量。
@@ -386,12 +491,12 @@ impl GameState {
 
     /// 返回玩家当前生效的移动方向。
     pub fn direction(&self) -> Direction {
-        self.direction
+        self.player.direction()
     }
 
     /// 返回玩家蛇身坐标队列，尾部在前，头部在后。
     pub fn snake(&self) -> &VecDeque<Position> {
-        &self.snake
+        self.player.body()
     }
 
     /// 返回所有 AI 敌蛇。
@@ -406,36 +511,33 @@ impl GameState {
 
     /// 返回玩家蛇头位置。
     fn player_head(&self) -> Position {
-        self.snake
-            .back()
-            .copied()
-            .unwrap_or(Position { x: 0, y: 0 })
+        self.player.head()
     }
 
     /// 让玩家蛇前进一步，并处理吃食物后的增长。
     fn advance_player(&mut self, next_head: Position, eats_food: bool) {
-        self.snake.push_back(next_head);
+        self.player.snake.body.push_back(next_head);
         if eats_food {
-            self.score += 1;
+            self.player.snake.score += 1;
             self.remove_food(next_head);
         } else {
-            self.snake.pop_front();
+            self.player.snake.body.pop_front();
         }
     }
 
     /// 让指定 AI 前进一步，并处理吃食物后的增长。
     fn advance_enemy(&mut self, enemy_index: usize, plan: EnemyPlan) {
         let enemy = &mut self.enemies[enemy_index];
-        enemy.direction = plan.navigation.direction;
+        enemy.snake.direction = plan.navigation.direction;
         enemy.random_walk_steps = plan.navigation.random_walk_steps;
         enemy.random_walk_direction = plan.navigation.random_walk_direction;
-        enemy.body.push_back(plan.next_head);
+        enemy.snake.body.push_back(plan.next_head);
 
         if plan.eats_food {
-            enemy.score += 1;
+            enemy.snake.score += 1;
             self.remove_food(plan.next_head);
         } else {
-            enemy.body.pop_front();
+            enemy.snake.body.pop_front();
         }
     }
 
@@ -449,7 +551,7 @@ impl GameState {
     /// 2. **撞自身**：下一步撞到自己的身体
     ///    - 需要考虑"尾巴移动规则"：如果玩家要吃食物，尾巴不会移动，
     ///      此时尾巴所在位置仍被视为被身体占用
-    ///    - 通过 `occupies_with_tail_rules(&self.snake, next_head, player_eats)` 判断
+    ///    - 通过 `occupies_with_tail_rules(self.player.body(), next_head, player_eats)` 判断
     ///
     /// 3. **撞 AI**：下一步撞到任意一条 AI 蛇的身体
     ///    - 同样需要考虑 AI 是否会吃食物（尾巴是否移动）
@@ -465,13 +567,13 @@ impl GameState {
         enemy_plans: &[EnemyPlan],
     ) -> bool {
         self.hit_wall(next_head)
-            || self.occupies_with_tail_rules(&self.snake, next_head, player_eats)
+            || self.occupies_with_tail_rules(self.player.body(), next_head, player_eats)
             || self
                 .enemies
                 .iter()
                 .zip(enemy_plans.iter())
                 .any(|(enemy, plan)| {
-                    self.occupies_with_tail_rules(&enemy.body, next_head, plan.eats_food)
+                    self.occupies_with_tail_rules(enemy.body(), next_head, plan.eats_food)
                 })
             || enemy_plans.iter().any(|plan| plan.next_head == next_head)
     }
@@ -509,13 +611,13 @@ impl GameState {
         let plan = enemy_plans[enemy_index];
 
         self.hit_wall(plan.next_head)
-            || self.occupies_with_tail_rules(&enemy.body, plan.next_head, plan.eats_food)
-            || self.occupies_with_tail_rules(&self.snake, plan.next_head, player_eats)
+            || self.occupies_with_tail_rules(enemy.body(), plan.next_head, plan.eats_food)
+            || self.occupies_with_tail_rules(self.player.body(), plan.next_head, player_eats)
             || self.enemies.iter().zip(enemy_plans.iter()).enumerate().any(
                 |(other_index, (other_enemy, other_plan))| {
                     other_index != enemy_index
                         && self.occupies_with_tail_rules(
-                            &other_enemy.body,
+                            other_enemy.body(),
                             plan.next_head,
                             other_plan.eats_food,
                         )
@@ -593,7 +695,7 @@ impl GameState {
             }
 
             // 当前漫步方向不安全，重新选择随机漫步方向
-            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction);
+            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
             return NavigationDecision {
                 direction: walk_dir,
                 random_walk_steps: enemy.random_walk_steps.saturating_sub(1),
@@ -604,7 +706,7 @@ impl GameState {
         // 15% 概率开始新的随机漫步
         let mut rng = rand::rng();
         if rng.random_range(0..100) < 15 {
-            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction);
+            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
             let steps = rng.random_range(5..15);
             return NavigationDecision {
                 direction: walk_dir,
@@ -620,7 +722,7 @@ impl GameState {
         // 按优先级尝试每个方向，选择第一个安全的
         for direction in preferred {
             // 跳过会导致掉头的方向
-            if Self::is_opposite(enemy.direction, direction) {
+            if Self::is_opposite(enemy.direction(), direction) {
                 continue;
             }
 
@@ -635,10 +737,10 @@ impl GameState {
         }
 
         // 优先方向都不安全，尝试保持当前方向
-        let next = self.next_position(enemy.head(), enemy.direction);
+        let next = self.next_position(enemy.head(), enemy.direction());
         if self.enemy_step_is_safe(enemy_index, next) {
             return NavigationDecision {
-                direction: enemy.direction,
+                direction: enemy.direction(),
                 random_walk_steps: 0,
                 random_walk_direction: None,
             };
@@ -653,7 +755,7 @@ impl GameState {
         ]
         .into_iter()
         .filter(|&d| {
-            !Self::is_opposite(enemy.direction, d)
+            !Self::is_opposite(enemy.direction(), d)
                 && self.enemy_step_is_safe(enemy_index, self.next_position(enemy.head(), d))
         });
 
@@ -667,7 +769,7 @@ impl GameState {
 
         // 兜底：没有安全方向，保持原方向不变
         NavigationDecision {
-            direction: enemy.direction,
+            direction: enemy.direction(),
             random_walk_steps: 0,
             random_walk_direction: None,
         }
@@ -745,32 +847,30 @@ impl GameState {
         }
 
         // 检查是否撞到自己的尾巴（假设自己不会吃食物）
-        if self.occupies_with_tail_rules(&self.enemies[enemy_index].body, next, false) {
+        if self.occupies_with_tail_rules(self.enemies[enemy_index].body(), next, false) {
             return false;
         }
 
         // 检查是否撞到玩家蛇身（假设玩家不会吃食物）
-        if self.occupies_with_tail_rules(&self.snake, next, false) {
+        if self.occupies_with_tail_rules(self.player.body(), next, false) {
             return false;
         }
 
         // 检查是否撞到其他 AI 蛇身（假设其他 AI 不会吃食物）
         !self.enemies.iter().enumerate().any(|(other_index, enemy)| {
-            other_index != enemy_index && self.occupies_with_tail_rules(&enemy.body, next, false)
+            other_index != enemy_index && self.occupies_with_tail_rules(enemy.body(), next, false)
         })
     }
 
     /// 让 AI 重生到远离玩家的位置，避免卡死后整局无法继续。
     fn respawn_enemy(&mut self, enemy_index: usize) {
-        let score = self.enemies[enemy_index].score;
+        let score = self.enemies[enemy_index].snake.score;
 
         if let Some(replacement) = self.try_spawn_enemy_for_slot(enemy_index) {
-            self.enemies[enemy_index] = EnemySnake {
-                score,
-                ..replacement
-            };
+            self.enemies[enemy_index] = replacement;
+            self.enemies[enemy_index].snake.score = score;
         } else {
-            self.enemies[enemy_index].score = score;
+            self.enemies[enemy_index].snake.score = score;
         }
     }
 
@@ -812,7 +912,7 @@ impl GameState {
                 let enemy = EnemySnake::new(
                     Self::horizontal_enemy_body(head_x, y),
                     Direction::Left,
-                    EnemyAppearance::for_slot(slot),
+                    SnakeAppearance::for_slot(slot),
                 );
 
                 // 检查放置位置是否有效
@@ -841,7 +941,7 @@ impl GameState {
                 return Some(EnemySnake::new(
                     body,
                     direction,
-                    EnemyAppearance::for_slot(slot),
+                    SnakeAppearance::for_slot(slot),
                 ));
             }
         }
@@ -856,7 +956,12 @@ impl GameState {
     /// 2. 任何食物位置
     /// 3. 任何其他 AI 蛇身的任何一段
     fn enemy_spawn_is_valid(&self, body: &VecDeque<Position>) -> bool {
-        if self.snake.iter().any(|segment| body.contains(segment)) {
+        if self
+            .player
+            .body()
+            .iter()
+            .any(|segment| body.contains(segment))
+        {
             return false;
         }
 
@@ -867,7 +972,7 @@ impl GameState {
         !self
             .enemies
             .iter()
-            .any(|enemy| enemy.body.iter().any(|segment| body.contains(segment)))
+            .any(|enemy| enemy.body().iter().any(|segment| body.contains(segment)))
     }
 
     /// 返回离指定坐标最近的一颗食物。
@@ -978,11 +1083,11 @@ impl GameState {
     /// 其中"棋盘剩余空格数" = 棋盘总面积 - 玩家蛇身长度 - 所有 AI 蛇身长度之和。
     /// 这个限制确保食物不会生成在蛇身上。
     fn target_food_count(&self) -> usize {
-        let occupied = self.snake.len()
+        let occupied = self.player.body().len()
             + self
                 .enemies
                 .iter()
-                .map(|enemy| enemy.body.len())
+                .map(|enemy| enemy.body().len())
                 .sum::<usize>();
         let area = self.width as usize * self.height as usize;
         FOOD_COUNT.min(area.saturating_sub(occupied))
@@ -1005,12 +1110,12 @@ impl GameState {
                 y: rng.random_range(0..self.height),
             };
 
-            if !self.snake.contains(&candidate)
+            if !self.player.body().contains(&candidate)
                 && !self.foods.contains(&candidate)
                 && !self
                     .enemies
                     .iter()
-                    .any(|enemy| enemy.body.contains(&candidate))
+                    .any(|enemy| enemy.body().contains(&candidate))
             {
                 return candidate;
             }
