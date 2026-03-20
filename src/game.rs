@@ -163,8 +163,28 @@ impl PlayerSnake {
         self.snake.score()
     }
 
+    /// 返回玩家蛇头符号。
+    pub fn head_glyph(&self) -> &'static str {
+        self.snake.head_glyph()
+    }
+
+    /// 返回玩家蛇身符号。
+    pub fn body_glyph(&self) -> &'static str {
+        self.snake.body_glyph()
+    }
+
+    /// 返回玩家蛇头颜色。
+    pub fn head_color(&self) -> Color {
+        self.snake.head_color()
+    }
+
+    /// 返回玩家蛇身颜色。
+    pub fn body_color(&self) -> Color {
+        self.snake.body_color()
+    }
+
     /// 返回玩家蛇头位置。
-    fn head(&self) -> Position {
+    pub fn head(&self) -> Position {
         self.snake.head()
     }
 }
@@ -502,6 +522,11 @@ impl GameState {
     /// 返回所有 AI 敌蛇。
     pub fn enemies(&self) -> &[EnemySnake] {
         &self.enemies
+    }
+
+    /// 返回玩家蛇。
+    pub fn player(&self) -> &PlayerSnake {
+        &self.player
     }
 
     /// 返回当前所有食物位置。

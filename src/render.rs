@@ -20,8 +20,6 @@ const MIN_BOARD_HEIGHT: u16 = 6;
 const TEXT_COLOR: Color = Color::White;
 /// 次要信息的弱化颜色。
 const MUTED_COLOR: Color = Color::DarkGray;
-/// 玩家蛇的统一颜色。
-const PLAYER_COLOR: Color = Color::White;
 /// 食物的强调颜色。
 const FOOD_COLOR: Color = Color::LightRed;
 /// 主界面统一边框颜色。
@@ -245,8 +243,8 @@ fn help_text(state: RunState) -> &'static str {
 /// **字符映射规则**：
 /// | 元素 | 字符 | 颜色 |
 /// |------|------|------|
-/// | 玩家蛇头 | @ | 白色 (PLAYER_COLOR) |
-/// | 玩家蛇身 | o | 白色 (PLAYER_COLOR) |
+/// | 玩家蛇头 | 玩家自身配置 | 玩家自身配置 |
+/// | 玩家蛇身 | 玩家自身配置 | 玩家自身配置 |
 /// | 食物 | * | 亮红色 (FOOD_COLOR) |
 /// | 敌人蛇头 | A-F | 各自对应的亮色 |
 /// | 敌人蛇身 | a-f | 各自对应的暗色 |
@@ -268,7 +266,8 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
 
     // 提取玩家蛇头位置，避免在循环中重复访问
-    let player_head = game.snake().back().copied();
+    let player = game.player();
+    let player_head = Some(player.head());
 
     // 预分配行数组
     let mut rows = Vec::with_capacity(height as usize);
@@ -285,19 +284,16 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
             // 根据渲染优先级确定该位置应该显示什么
             let cell = if Some(position) == player_head {
                 // 玩家蛇头：优先级最高，用 @ 符号
-                Span::styled(
-                    "@",
-                    style_with_color(PLAYER_COLOR, no_color).add_modifier(Modifier::BOLD),
-                )
+                snake_cell(player.head_glyph(), player.head_color(), true, no_color)
             } else if game.foods().contains(&position) {
                 // 食物：用 * 符号
                 Span::styled(
                     "*",
                     style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
-            } else if game.snake().contains(&position) {
+            } else if player.body().contains(&position) {
                 // 玩家蛇身：用 o 符号
-                Span::styled("o", style_with_color(PLAYER_COLOR, no_color))
+                snake_cell(player.body_glyph(), player.body_color(), false, no_color)
             } else if let Some((enemy, is_head)) = enemy_cell(game.enemies(), position) {
                 // AI 蛇身或蛇头：使用蛇自身绑定的外观
                 let glyph = if is_head {
@@ -310,13 +306,7 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                 } else {
                     enemy.body_color()
                 };
-                let style = if is_head {
-                    style_with_color(color, no_color).add_modifier(Modifier::BOLD)
-                } else {
-                    style_with_color(color, no_color)
-                };
-
-                Span::styled(glyph, style)
+                snake_cell(glyph, color, is_head, no_color)
             } else {
                 // 空地：用 · 符号
                 Span::styled("·", style_with_color(MUTED_COLOR, no_color))
@@ -331,6 +321,17 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     }
 
     rows
+}
+
+/// 使用统一样式渲染一个蛇身单元格。
+fn snake_cell(glyph: &'static str, color: Color, is_head: bool, no_color: bool) -> Span<'static> {
+    let style = if is_head {
+        style_with_color(color, no_color).add_modifier(Modifier::BOLD)
+    } else {
+        style_with_color(color, no_color)
+    };
+
+    Span::styled(glyph, style)
 }
 
 /// 将所有 AI 的方向格式化为可读字符串。
