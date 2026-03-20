@@ -241,7 +241,7 @@ fn help_text(state: RunState) -> &'static str {
 /// |------|------|------|
 /// | 玩家蛇头 | 玩家自身配置 | 玩家自身配置 |
 /// | 玩家蛇身 | 玩家自身配置 | 玩家自身配置 |
-/// | 食物 | * | 亮红色 (FOOD_COLOR) |
+/// | 普通/尸体食物 | * | 亮红色 (FOOD_COLOR) |
 /// | 超级果实 | $ | 亮黄色 (SUPER_FRUIT_COLOR) |
 /// | 炸弹 | X | 红色 (BOMB_COLOR) |
 /// | 敌人蛇头 | A-F | 各自对应的亮色 |
@@ -283,8 +283,8 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
             let cell = if Some(position) == player_head {
                 // 玩家蛇头：优先级最高，用 @ 符号
                 snake_cell(player.head_glyph(), player.head_color(), true, no_color)
-            } else if game.foods().contains(&position) {
-                // 食物：用 * 符号
+            } else if game.foods().contains(&position) || game.legacy_foods().contains(&position) {
+                // 普通食物和尸体食物：统一用 * 符号
                 Span::styled(
                     "*",
                     style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD),

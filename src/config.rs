@@ -2,6 +2,8 @@
 pub mod app {
     /// 控制游戏逻辑推进频率，决定蛇移动速度。
     pub const TICK_RATE_MS: u64 = 160;
+    /// 控制界面渲染频率，为后续动画和过渡效果预留更细的时间粒度。
+    pub const RENDER_FRAME_RATE_MS: u64 = 33;
 }
 
 /// 游戏玩法相关配置。

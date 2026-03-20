@@ -346,6 +346,8 @@ pub struct GameState {
     enemies: Vec<EnemySnake>,
     /// 当前棋盘上的所有食物位置。
     foods: Vec<Position>,
+    /// 蛇死亡后留下的尸体食物位置。
+    legacy_foods: Vec<Position>,
     /// 当前棋盘上的所有超级食物位置。
     super_foods: Vec<Position>,
     /// 当前棋盘上的所有炸弹位置。
@@ -377,6 +379,7 @@ impl GameState {
             player,
             enemies: Vec::with_capacity(AI_SNAKE_COUNT),
             foods: Vec::new(),
+            legacy_foods: Vec::new(),
             super_foods: Vec::new(),
             bombs: Vec::new(),
         };
@@ -577,6 +580,11 @@ impl GameState {
     /// 返回当前所有食物位置。
     pub fn foods(&self) -> &[Position] {
         &self.foods
+    }
+
+    /// 返回所有由死亡蛇身转化而来的尸体食物位置。
+    pub fn legacy_foods(&self) -> &[Position] {
+        &self.legacy_foods
     }
 
     /// 返回当前所有超级果实位置。
@@ -1123,6 +1131,10 @@ impl GameState {
             return false;
         }
 
+        if self.legacy_foods.iter().any(|food| body.contains(food)) {
+            return false;
+        }
+
         if self.super_foods.iter().any(|fruit| body.contains(fruit))
             || self.bombs.iter().any(|bomb| body.contains(bomb))
         {
@@ -1139,6 +1151,7 @@ impl GameState {
     fn closest_consumable_to(&self, origin: Position) -> Position {
         self.foods
             .iter()
+            .chain(self.legacy_foods.iter())
             .chain(self.super_foods.iter())
             .copied()
             .min_by_key(|food| Self::manhattan_distance(origin, *food))
@@ -1288,7 +1301,7 @@ impl GameState {
 
     /// 返回指定位置对应的格子效果。
     fn tile_effect(&self, position: Position) -> TileEffect {
-        if self.foods.contains(&position) {
+        if self.foods.contains(&position) || self.legacy_foods.contains(&position) {
             return TileEffect {
                 consumable: Some(ConsumableKind::Food),
                 growth_amount: FOOD_GROWTH_AMOUNT,
@@ -1354,10 +1367,11 @@ impl GameState {
     fn drop_legacy_from_body(&mut self, body: &VecDeque<Position>) {
         for &segment in body {
             if !self.foods.contains(&segment)
+                && !self.legacy_foods.contains(&segment)
                 && !self.super_foods.contains(&segment)
                 && !self.bombs.contains(&segment)
             {
-                self.foods.push(segment);
+                self.legacy_foods.push(segment);
             }
         }
     }
@@ -1366,6 +1380,11 @@ impl GameState {
     fn remove_food(&mut self, position: Position) {
         if let Some(index) = self.foods.iter().position(|food| *food == position) {
             self.foods.swap_remove(index);
+            return;
+        }
+
+        if let Some(index) = self.legacy_foods.iter().position(|food| *food == position) {
+            self.legacy_foods.swap_remove(index);
         }
     }
 
@@ -1392,7 +1411,8 @@ impl GameState {
                 .iter()
                 .map(|enemy| enemy.body().len())
                 .sum::<usize>();
-        let occupied_by_items = self.foods.len() + self.super_foods.len() + self.bombs.len();
+        let occupied_by_items =
+            self.foods.len() + self.legacy_foods.len() + self.super_foods.len() + self.bombs.len();
 
         area.saturating_sub(occupied_by_snakes + occupied_by_items)
     }
@@ -1409,6 +1429,7 @@ impl GameState {
 
             if !self.player.body().contains(&candidate)
                 && !self.foods.contains(&candidate)
+                && !self.legacy_foods.contains(&candidate)
                 && !self.super_foods.contains(&candidate)
                 && !self.bombs.contains(&candidate)
                 && !self
@@ -1722,9 +1743,10 @@ mod tests {
         assert_eq!(game.run_state(), RunState::GameOver);
         assert_eq!(game.player().body().len(), 3);
         assert_eq!(game.enemies()[0].score(), 0);
-        assert!(game.foods().contains(&Position { x: 1, y: 4 }));
-        assert!(game.foods().contains(&Position { x: 2, y: 4 }));
-        assert!(game.foods().contains(&Position { x: 3, y: 4 }));
+        assert_eq!(game.foods().len(), FOOD_COUNT);
+        assert!(game.legacy_foods().contains(&Position { x: 1, y: 4 }));
+        assert!(game.legacy_foods().contains(&Position { x: 2, y: 4 }));
+        assert!(game.legacy_foods().contains(&Position { x: 3, y: 4 }));
     }
 
     #[test]
@@ -1755,9 +1777,34 @@ mod tests {
         game.tick();
 
         assert_eq!(game.run_state(), RunState::GameOver);
-        assert!(game.foods().contains(&Position { x: 3, y: 4 }));
-        assert!(game.foods().contains(&Position { x: 4, y: 4 }));
-        assert!(game.foods().contains(&Position { x: 5, y: 4 }));
+        assert!(game.legacy_foods().contains(&Position { x: 3, y: 4 }));
+        assert!(game.legacy_foods().contains(&Position { x: 4, y: 4 }));
+        assert!(game.legacy_foods().contains(&Position { x: 5, y: 4 }));
+    }
+
+    #[test]
+    /// 验证尸体食物不会占用普通食物配额，补货后仍会补齐常规食物。
+    fn legacy_food_does_not_reduce_normal_food_refill() {
+        let mut game = GameState::with_board_size(16, 8);
+        game.foods.clear();
+        game.super_foods.clear();
+        game.bombs.clear();
+        game.enemies.clear();
+        game.player.snake.body = VecDeque::from([
+            Position { x: 1, y: 4 },
+            Position { x: 2, y: 4 },
+            Position { x: 3, y: 4 },
+        ]);
+        game.player.snake.direction = Direction::Right;
+        game.player.pending_direction = Direction::Right;
+        game.bombs = vec![Position { x: 4, y: 4 }];
+        game.start();
+
+        game.tick();
+
+        assert_eq!(game.run_state(), RunState::GameOver);
+        assert_eq!(game.foods().len(), FOOD_COUNT);
+        assert_eq!(game.legacy_foods().len(), 3);
     }
 
     #[test]

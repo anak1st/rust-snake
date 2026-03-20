@@ -11,7 +11,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
-use crate::config::app::TICK_RATE_MS;
+use crate::config::app::{RENDER_FRAME_RATE_MS, TICK_RATE_MS};
 use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
 
@@ -43,27 +43,54 @@ impl App {
         result
     }
 
-    /// 驱动渲染、输入处理和固定 tick 更新。
+    /// 驱动输入处理、固定逻辑 tick 和独立渲染帧。
     fn run_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         let mut last_tick = Instant::now();
         let tick_rate = Duration::from_millis(TICK_RATE_MS);
+        let render_rate = Duration::from_millis(RENDER_FRAME_RATE_MS);
+        let mut last_render_frame = Instant::now()
+            .checked_sub(render_rate)
+            .unwrap_or_else(Instant::now);
 
         while !self.should_quit {
-            terminal.draw(|frame| {
-                render::draw(frame, &self.game, self.window_too_small, self.no_color)
-            })?;
+            let now = Instant::now();
+            let next_tick_at = last_tick + tick_rate;
+            let next_render_at = last_render_frame + render_rate;
+            let next_update_at = next_tick_at.min(next_render_at);
+            let timeout = next_update_at.saturating_duration_since(now);
 
-            let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
                 self.handle_event(event::read()?)?;
             }
 
-            if !self.window_too_small && last_tick.elapsed() >= tick_rate {
-                self.game.tick();
-                last_tick = Instant::now();
+            let now = Instant::now();
+            if self.window_too_small {
+                last_tick = now;
+            } else {
+                while now.duration_since(last_tick) >= tick_rate {
+                    self.game.tick();
+                    last_tick += tick_rate;
+                }
+            }
+
+            let mut should_render = false;
+            while now.duration_since(last_render_frame) >= render_rate {
+                last_render_frame += render_rate;
+                should_render = true;
+            }
+
+            if should_render {
+                self.draw_frame(terminal)?;
             }
         }
 
+        Ok(())
+    }
+
+    /// 按当前状态绘制一帧界面。
+    fn draw_frame(&self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+        terminal
+            .draw(|frame| render::draw(frame, &self.game, self.window_too_small, self.no_color))?;
         Ok(())
     }
 
