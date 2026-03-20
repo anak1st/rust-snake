@@ -11,11 +11,9 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
+use crate::config::app::TICK_RATE_MS;
 use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
-
-/// 控制游戏逻辑推进频率，决定蛇移动速度。
-const TICK_RATE: Duration = Duration::from_millis(160);
 
 /// 应用层状态，负责协调终端、输入和游戏循环。
 pub struct App {
@@ -48,18 +46,19 @@ impl App {
     /// 驱动渲染、输入处理和固定 tick 更新。
     fn run_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         let mut last_tick = Instant::now();
+        let tick_rate = Duration::from_millis(TICK_RATE_MS);
 
         while !self.should_quit {
             terminal.draw(|frame| {
                 render::draw(frame, &self.game, self.window_too_small, self.no_color)
             })?;
 
-            let timeout = TICK_RATE.saturating_sub(last_tick.elapsed());
+            let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if event::poll(timeout)? {
                 self.handle_event(event::read()?)?;
             }
 
-            if !self.window_too_small && last_tick.elapsed() >= TICK_RATE {
+            if !self.window_too_small && last_tick.elapsed() >= tick_rate {
                 self.game.tick();
                 last_tick = Instant::now();
             }

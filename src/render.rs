@@ -4,18 +4,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
+use crate::config::render::{
+    FOOTER_HEIGHT, HEADER_HEIGHT, INFO_HEIGHT, MIN_BOARD_HEIGHT, MIN_BOARD_WIDTH,
+};
 use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, Position, RunState};
-
-/// 顶部标题栏的固定高度。
-const HEADER_HEIGHT: u16 = 3;
-/// 底部帮助栏的固定高度。
-const FOOTER_HEIGHT: u16 = 3;
-/// 状态信息区域的固定高度。
-const INFO_HEIGHT: u16 = 4;
-/// 允许的最小棋盘宽度，避免窗口过小时不可玩。
-const MIN_BOARD_WIDTH: u16 = 10;
-/// 允许的最小棋盘高度，避免窗口过小时不可玩。
-const MIN_BOARD_HEIGHT: u16 = 6;
 /// 普通文字的基础颜色。
 const TEXT_COLOR: Color = Color::White;
 /// 次要信息的弱化颜色。

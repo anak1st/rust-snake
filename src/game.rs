@@ -2,14 +2,11 @@ use rand::Rng;
 use ratatui::style::Color;
 use std::collections::VecDeque;
 
-/// 默认生成的 AI 敌蛇数量。
-const AI_SNAKE_COUNT: usize = 3;
-/// 默认同时生成的食物数量。
-const FOOD_COUNT: usize = 4;
-/// 默认同时生成的超级食物数量。
-const SUPER_FOOD_COUNT: usize = 1;
-/// 默认同时生成的炸弹数量。
-const BOMB_COUNT: usize = 2;
+use crate::config::game::{
+    AI_SNAKE_COUNT, BOMB_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WIDTH, FOOD_COUNT,
+    FOOD_GROWTH_AMOUNT, FOOD_SCORE_GAIN, SUPER_FOOD_COUNT, SUPER_FOOD_GROWTH_AMOUNT,
+    SUPER_FOOD_SCORE_GAIN,
+};
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,7 +364,7 @@ impl GameState {
     /// 初始化后游戏处于 Ready 状态，需要玩家按键才开始。
     /// 默认生成 3 条 AI 蛇和 4 颗食物。
     pub fn new() -> Self {
-        Self::with_board_size(16, 12)
+        Self::with_board_size(DEFAULT_BOARD_WIDTH, DEFAULT_BOARD_HEIGHT)
     }
 
     /// 按指定棋盘尺寸初始化一局新游戏。
@@ -1252,8 +1249,8 @@ impl GameState {
         if self.foods.contains(&position) {
             return TileEffect {
                 consumable: Some(ConsumableKind::Food),
-                growth_amount: 1,
-                score_gain: 1,
+                growth_amount: FOOD_GROWTH_AMOUNT,
+                score_gain: FOOD_SCORE_GAIN,
                 hits_bomb: false,
             };
         }
@@ -1261,8 +1258,8 @@ impl GameState {
         if self.super_foods.contains(&position) {
             return TileEffect {
                 consumable: Some(ConsumableKind::SuperFood),
-                growth_amount: 3,
-                score_gain: 3,
+                growth_amount: SUPER_FOOD_GROWTH_AMOUNT,
+                score_gain: SUPER_FOOD_SCORE_GAIN,
                 hits_bomb: false,
             };
         }
