@@ -101,6 +101,9 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
     // 格式化所有 AI 的方向显示
     let ai_direction_text = format_enemy_directions(game.enemies());
 
+    // 格式化所有 AI 的分数显示
+    let ai_scores_text = format_enemy_scores(game.enemies());
+
     // 创建状态信息面板，显示 Tick 数、分数、AI 分数、AI 数量、状态、方向等
     let info = Paragraph::new(vec![
         Line::from(vec![
@@ -118,7 +121,7 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
             Span::raw("  "),
             Span::styled("Enemy: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
-                game.enemy_score().to_string(),
+                ai_scores_text,
                 style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
@@ -341,6 +344,21 @@ fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
                 direction_label(enemy.direction())
             )
         })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 将所有 AI 的分数格式化为可读字符串。
+///
+/// 格式示例："A:3 B:5 C:2" 表示：
+/// - A 蛇得 3 分
+/// - B 蛇得 5 分
+/// - C 蛇得 2 分
+fn format_enemy_scores(enemies: &[EnemySnake]) -> String {
+    enemies
+        .iter()
+        .enumerate()
+        .map(|(index, enemy)| format!("{}:{}", enemy_label(index), enemy.score()))
         .collect::<Vec<_>>()
         .join(" ")
 }

@@ -294,11 +294,6 @@ impl GameState {
         self.score
     }
 
-    /// 返回所有 AI 的总分。
-    pub fn enemy_score(&self) -> u32 {
-        self.enemies.iter().map(EnemySnake::score).sum()
-    }
-
     /// 返回 AI 数量。
     pub fn enemy_count(&self) -> usize {
         self.enemies.len()
