@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, Position, RunState};
 
@@ -20,12 +20,12 @@ const MIN_BOARD_HEIGHT: u16 = 6;
 const TEXT_COLOR: Color = Color::White;
 /// 次要信息的弱化颜色。
 const MUTED_COLOR: Color = Color::DarkGray;
-/// 蛇头的高亮颜色。
-const HEAD_COLOR: Color = Color::LightGreen;
-/// 蛇身的主体颜色。
-const BODY_COLOR: Color = Color::Green;
+/// 玩家蛇的统一颜色。
+const PLAYER_COLOR: Color = Color::White;
 /// 食物的强调颜色。
 const FOOD_COLOR: Color = Color::LightRed;
+/// 主界面统一边框颜色。
+const MAIN_BORDER_COLOR: Color = Color::White;
 
 /// 根据当前游戏状态绘制整个界面。
 ///
@@ -80,7 +80,7 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
     let header = Paragraph::new(Line::from("Rust Snake"))
         .alignment(Alignment::Center)
         .style(style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD))
-        .block(styled_block("Title", Color::LightCyan, no_color));
+        .block(styled_block("Title", MAIN_BORDER_COLOR, no_color));
 
     // 根据游戏状态确定状态文本颜色
     let status_text = match game.run_state() {
@@ -99,14 +99,14 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
     };
 
     // 格式化所有 AI 的方向显示
-    let ai_direction_text = format_enemy_directions(game.enemies());
+    let ai_direction_spans = format_enemy_directions(game.enemies(), no_color);
 
     // 格式化所有 AI 的分数显示
-    let ai_scores_text = format_enemy_scores(game.enemies());
+    let ai_score_spans = format_enemy_scores(game.enemies(), no_color);
 
     // 创建状态信息面板，显示 Tick 数、分数、AI 分数、AI 数量、状态、方向等
-    let info = Paragraph::new(vec![
-        Line::from(vec![
+    let mut info_rows = vec![
+        vec![
             Span::styled("Tick: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.tick_count().to_string(),
@@ -126,12 +126,8 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
             ),
             Span::raw("  "),
             Span::styled("Enemy Score: ", style_with_color(MUTED_COLOR, no_color)),
-            Span::styled(
-                ai_scores_text,
-                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
-            ), 
-        ]),
-        Line::from(vec![
+        ],
+        vec![
             Span::styled("State: ", style_with_color(MUTED_COLOR, no_color)),
             status_text,
             Span::raw("  "),
@@ -142,19 +138,19 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
             ),
             Span::raw("  "),
             Span::styled("AI Dir: ", style_with_color(MUTED_COLOR, no_color)),
-            Span::styled(
-                ai_direction_text,
-                style_with_color(Color::LightMagenta, no_color).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-    ])
-    .block(styled_block("Status", Color::LightBlue, no_color));
+        ],
+    ];
+    info_rows[0].extend(ai_score_spans);
+    info_rows[1].extend(ai_direction_spans);
+
+    let info = Paragraph::new(info_rows.into_iter().map(Line::from).collect::<Vec<_>>())
+        .block(styled_block("Status", MAIN_BORDER_COLOR, no_color));
 
     // 创建底部帮助栏，显示当前状态对应的操作提示
     let footer = Paragraph::new(Line::from(help_text(game.run_state())))
         .alignment(Alignment::Center)
         .style(style_with_color(MUTED_COLOR, no_color))
-        .block(styled_block("Help", Color::Gray, no_color));
+        .block(styled_block("Help", MAIN_BORDER_COLOR, no_color));
 
     // 将所有组件渲染到对应的区域
     frame.render_widget(header, header_area);
@@ -192,7 +188,7 @@ fn min_terminal_height() -> u16 {
 fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, no_color: bool) {
     let board = Paragraph::new(render_live_board(game, no_color)).block(styled_block(
         "Board",
-        Color::Green,
+        MAIN_BORDER_COLOR,
         no_color,
     ));
     frame.render_widget(board, area);
@@ -203,6 +199,7 @@ fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, 
             frame,
             area,
             "Ready",
+            Color::LightMagenta,
             &[
                 "Rust Snake",
                 "",
@@ -216,6 +213,7 @@ fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, 
             frame,
             area,
             "Paused",
+            Color::LightMagenta,
             &["游戏已暂停", "", "按 Space 继续"],
             no_color,
         ),
@@ -223,6 +221,7 @@ fn draw_board(frame: &mut Frame, area: ratatui::layout::Rect, game: &GameState, 
             frame,
             area,
             "Game Over",
+            Color::Red,
             &["游戏结束", "", "按 r 重新开始"],
             no_color,
         ),
@@ -246,8 +245,8 @@ fn help_text(state: RunState) -> &'static str {
 /// **字符映射规则**：
 /// | 元素 | 字符 | 颜色 |
 /// |------|------|------|
-/// | 玩家蛇头 | @ | 亮绿色 (HEAD_COLOR) |
-/// | 玩家蛇身 | o | 绿色 (BODY_COLOR) |
+/// | 玩家蛇头 | @ | 白色 (PLAYER_COLOR) |
+/// | 玩家蛇身 | o | 白色 (PLAYER_COLOR) |
 /// | 食物 | * | 亮红色 (FOOD_COLOR) |
 /// | 敌人蛇头 | A-F | 各自对应的亮色 |
 /// | 敌人蛇身 | a-f | 各自对应的暗色 |
@@ -288,7 +287,7 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                 // 玩家蛇头：优先级最高，用 @ 符号
                 Span::styled(
                     "@",
-                    style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
+                    style_with_color(PLAYER_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if game.foods().contains(&position) {
                 // 食物：用 * 符号
@@ -298,10 +297,19 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                 )
             } else if game.snake().contains(&position) {
                 // 玩家蛇身：用 o 符号
-                Span::styled("o", style_with_color(BODY_COLOR, no_color))
-            } else if let Some((enemy_index, is_head)) = enemy_cell(game.enemies(), position) {
-                // AI 蛇身或蛇头：用字母区分
-                let (glyph, color) = enemy_style(enemy_index, is_head);
+                Span::styled("o", style_with_color(PLAYER_COLOR, no_color))
+            } else if let Some((enemy, is_head)) = enemy_cell(game.enemies(), position) {
+                // AI 蛇身或蛇头：使用蛇自身绑定的外观
+                let glyph = if is_head {
+                    enemy.head_glyph()
+                } else {
+                    enemy.body_glyph()
+                };
+                let color = if is_head {
+                    enemy.head_color()
+                } else {
+                    enemy.body_color()
+                };
                 let style = if is_head {
                     style_with_color(color, no_color).add_modifier(Modifier::BOLD)
                 } else {
@@ -333,19 +341,28 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
 /// - C 蛇向右了
 ///
 /// 每个 AI 用一个字母（标签）+ 方向符号表示。
-fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
-    enemies
-        .iter()
-        .enumerate()
-        .map(|(index, enemy)| {
+fn format_enemy_directions(enemies: &[EnemySnake], no_color: bool) -> Vec<Span<'static>> {
+    if enemies.is_empty() {
+        return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
+    }
+
+    let mut spans = Vec::with_capacity(enemies.len() * 2);
+    for (index, enemy) in enemies.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+
+        spans.push(Span::styled(
             format!(
                 "{}{}",
-                enemy_label(index),
+                enemy.head_glyph(),
                 direction_label(enemy.direction())
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+            ),
+            style_with_color(enemy.head_color(), no_color).add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    spans
 }
 
 /// 将所有 AI 的分数格式化为可读字符串。
@@ -354,13 +371,24 @@ fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
 /// - A 蛇得 3 分
 /// - B 蛇得 5 分
 /// - C 蛇得 2 分
-fn format_enemy_scores(enemies: &[EnemySnake]) -> String {
-    enemies
-        .iter()
-        .enumerate()
-        .map(|(index, enemy)| format!("{}:{}", enemy_label(index), enemy.score()))
-        .collect::<Vec<_>>()
-        .join(" ")
+fn format_enemy_scores(enemies: &[EnemySnake], no_color: bool) -> Vec<Span<'static>> {
+    if enemies.is_empty() {
+        return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
+    }
+
+    let mut spans = Vec::with_capacity(enemies.len() * 2);
+    for (index, enemy) in enemies.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+
+        spans.push(Span::styled(
+            format!("{}:{}", enemy.head_glyph(), enemy.score()),
+            style_with_color(enemy.head_color(), no_color).add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    spans
 }
 
 /// 将蛇的移动方向转换为符号表示。
@@ -379,82 +407,16 @@ fn direction_label(direction: SnakeDirection) -> &'static str {
 /// - `None`：该位置没有被任何 AI 占据
 /// - `Some((index, true))`：该位置是第 index 条 AI 的蛇头
 /// - `Some((index, false))`：该位置是第 index 条 AI 的蛇身（非头）
-fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(usize, bool)> {
-    enemies.iter().enumerate().find_map(|(index, enemy)| {
+fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(&EnemySnake, bool)> {
+    enemies.iter().find_map(|enemy| {
         if Some(position) == enemy.body().back().copied() {
-            Some((index, true))
+            Some((enemy, true))
         } else if enemy.body().contains(&position) {
-            Some((index, false))
+            Some((enemy, false))
         } else {
             None
         }
     })
-}
-
-/// 获取指定 AI 蛇的显示字符和颜色。
-///
-/// **颜色分配**（按 index 循环）：
-/// | 蛇编号 | 蛇头颜色 | 蛇身颜色 |
-/// |--------|----------|----------|
-/// | 0 | 亮洋红 | 洋红 |
-/// | 1 | 亮青 | 青 |
-/// | 2 | 亮黄 | 黄 |
-/// | 3 | 亮红 | 红 |
-///
-/// **字符分配**：
-/// - 蛇头：enemy_label(index) 返回大写字母
-/// - 蛇身：enemy_body_label(index) 返回小写字母
-fn enemy_style(index: usize, is_head: bool) -> (&'static str, Color) {
-    const HEAD_COLORS: [Color; 4] = [
-        Color::LightMagenta,
-        Color::LightCyan,
-        Color::LightYellow,
-        Color::LightRed,
-    ];
-    const BODY_COLORS: [Color; 4] = [Color::Magenta, Color::Cyan, Color::Yellow, Color::Red];
-
-    let label = enemy_label(index);
-    let glyph = if is_head {
-        label
-    } else {
-        enemy_body_label(index)
-    };
-    let color = if is_head {
-        HEAD_COLORS[index % HEAD_COLORS.len()]
-    } else {
-        BODY_COLORS[index % BODY_COLORS.len()]
-    };
-
-    (glyph, color)
-}
-
-/// 返回第 index 条 AI 蛇的蛇头标签（单字母大写）。
-///
-/// 标签按以下顺序循环：A, B, C, D, E, F, A, B, ...
-fn enemy_label(index: usize) -> &'static str {
-    match index % 6 {
-        0 => "A",
-        1 => "B",
-        2 => "C",
-        3 => "D",
-        4 => "E",
-        _ => "F",
-    }
-}
-
-/// 返回第 index 条 AI 蛇的蛇身标签（单字母小写）。
-///
-/// 标签按以下顺序循环：a, b, c, d, e, f, a, b, ...
-/// 与 enemy_label 配对使用（index 相同时，蛇头是 A 则蛇身是 a）。
-fn enemy_body_label(index: usize) -> &'static str {
-    match index % 6 {
-        0 => "a",
-        1 => "b",
-        2 => "c",
-        3 => "d",
-        4 => "e",
-        _ => "f",
-    }
 }
 
 /// 在棋盘中央绘制一个整体居中、段内左对齐的提示面板。
@@ -462,6 +424,7 @@ fn draw_message_popup(
     frame: &mut Frame,
     area: ratatui::layout::Rect,
     title: &'static str,
+    border_color: Color,
     lines: &[&'static str],
     no_color: bool,
 ) {
@@ -471,7 +434,7 @@ fn draw_message_popup(
         .iter()
         .map(|line| Line::from(Span::styled(*line, style_with_color(TEXT_COLOR, no_color))))
         .collect::<Vec<_>>();
-    let popup = Paragraph::new(content).block(styled_block(title, Color::LightMagenta, no_color));
+    let popup = Paragraph::new(content).block(styled_block(title, border_color, no_color));
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }

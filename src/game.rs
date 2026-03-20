@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
-
 use rand::Rng;
+use ratatui::style::Color;
+use std::collections::VecDeque;
 
 /// 默认生成的 AI 敌蛇数量。
 const AI_SNAKE_COUNT: usize = 3;
@@ -49,17 +49,33 @@ pub struct EnemySnake {
     body: VecDeque<Position>,
     /// 该 AI 的累计得分。
     score: u32,
+    /// 该 AI 的固定外观配置。
+    appearance: EnemyAppearance,
+}
+
+/// AI 蛇的固定外观信息。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnemyAppearance {
+    /// 蛇头显示符号。
+    head_glyph: &'static str,
+    /// 蛇身显示符号。
+    body_glyph: &'static str,
+    /// 蛇头颜色。
+    head_color: Color,
+    /// 蛇身颜色。
+    body_color: Color,
 }
 
 impl EnemySnake {
     /// 创建一条新的 AI 蛇，初始随机漫步步数为 0。
-    fn new(body: VecDeque<Position>, direction: Direction) -> Self {
+    fn new(body: VecDeque<Position>, direction: Direction, appearance: EnemyAppearance) -> Self {
         Self {
             direction,
             random_walk_steps: 0,
             random_walk_direction: None,
             body,
             score: 0,
+            appearance,
         }
     }
 
@@ -78,9 +94,73 @@ impl EnemySnake {
         self.score
     }
 
+    /// 返回 AI 蛇头符号。
+    pub fn head_glyph(&self) -> &'static str {
+        self.appearance.head_glyph
+    }
+
+    /// 返回 AI 蛇身符号。
+    pub fn body_glyph(&self) -> &'static str {
+        self.appearance.body_glyph
+    }
+
+    /// 返回 AI 蛇头颜色。
+    pub fn head_color(&self) -> Color {
+        self.appearance.head_color
+    }
+
+    /// 返回 AI 蛇身颜色。
+    pub fn body_color(&self) -> Color {
+        self.appearance.body_color
+    }
+
     /// 返回 AI 蛇头位置。如果身体为空，返回 (0, 0)。
     fn head(&self) -> Position {
         self.body.back().copied().unwrap_or(Position { x: 0, y: 0 })
+    }
+}
+
+impl EnemyAppearance {
+    /// 按固定槽位返回 AI 的外观配置。
+    fn for_slot(slot: usize) -> Self {
+        match slot % 6 {
+            0 => Self {
+                head_glyph: "A",
+                body_glyph: "a",
+                head_color: Color::LightMagenta,
+                body_color: Color::Magenta,
+            },
+            1 => Self {
+                head_glyph: "B",
+                body_glyph: "b",
+                head_color: Color::LightCyan,
+                body_color: Color::Cyan,
+            },
+            2 => Self {
+                head_glyph: "C",
+                body_glyph: "c",
+                head_color: Color::LightYellow,
+                body_color: Color::Yellow,
+            },
+            3 => Self {
+                head_glyph: "D",
+                body_glyph: "d",
+                head_color: Color::LightRed,
+                body_color: Color::Red,
+            },
+            4 => Self {
+                head_glyph: "E",
+                body_glyph: "e",
+                head_color: Color::LightBlue,
+                body_color: Color::Blue,
+            },
+            _ => Self {
+                head_glyph: "F",
+                body_glyph: "f",
+                head_color: Color::White,
+                body_color: Color::Gray,
+            },
+        }
     }
 }
 
@@ -684,7 +764,7 @@ impl GameState {
     fn respawn_enemy(&mut self, enemy_index: usize) {
         let score = self.enemies[enemy_index].score;
 
-        if let Some(replacement) = self.try_spawn_enemy() {
+        if let Some(replacement) = self.try_spawn_enemy_for_slot(enemy_index) {
             self.enemies[enemy_index] = EnemySnake {
                 score,
                 ..replacement
@@ -729,8 +809,11 @@ impl GameState {
         for y in rows {
             for head_x in (0..=self.width.saturating_sub(3)).rev() {
                 // 创建一条水平放置的敌蛇，头部朝左
-                let enemy =
-                    EnemySnake::new(Self::horizontal_enemy_body(head_x, y), Direction::Left);
+                let enemy = EnemySnake::new(
+                    Self::horizontal_enemy_body(head_x, y),
+                    Direction::Left,
+                    EnemyAppearance::for_slot(slot),
+                );
 
                 // 检查放置位置是否有效
                 if self.enemy_spawn_is_valid(enemy.body()) {
@@ -740,14 +823,14 @@ impl GameState {
         }
 
         // 所有预定位置都无效，fallback 到随机生成
-        self.try_spawn_enemy()
+        self.try_spawn_enemy(slot)
     }
 
     /// 随机尝试生成一条 AI 蛇，最多尝试 256 次。
     ///
     /// 每次随机生成一个水平和垂直的蛇身布局，检查位置是否有效。
     /// 如果棋盘太小（小于 3x3），直接返回 None。
-    fn try_spawn_enemy(&self) -> Option<EnemySnake> {
+    fn try_spawn_enemy(&self, slot: usize) -> Option<EnemySnake> {
         if self.width < 3 && self.height < 3 {
             return None;
         }
@@ -755,7 +838,11 @@ impl GameState {
         for _ in 0..256 {
             let (body, direction) = Self::spawn_enemy_snake(self.width, self.height);
             if self.enemy_spawn_is_valid(&body) {
-                return Some(EnemySnake::new(body, direction));
+                return Some(EnemySnake::new(
+                    body,
+                    direction,
+                    EnemyAppearance::for_slot(slot),
+                ));
             }
         }
 
@@ -1067,11 +1154,12 @@ mod tests {
         let game = GameState::with_board_size(20, 10);
 
         assert_eq!(game.enemy_count(), 3);
-        assert!(game
-            .enemies()
-            .iter()
-            .flat_map(|enemy| enemy.body().iter())
-            .all(|segment| !game.snake().contains(segment)));
+        assert!(
+            game.enemies()
+                .iter()
+                .flat_map(|enemy| enemy.body().iter())
+                .all(|segment| !game.snake().contains(segment))
+        );
     }
 
     #[test]
@@ -1081,10 +1169,12 @@ mod tests {
 
         for (index, enemy) in game.enemies().iter().enumerate() {
             for other in game.enemies().iter().skip(index + 1) {
-                assert!(enemy
-                    .body()
-                    .iter()
-                    .all(|segment| !other.body().contains(segment)));
+                assert!(
+                    enemy
+                        .body()
+                        .iter()
+                        .all(|segment| !other.body().contains(segment))
+                );
             }
         }
     }
