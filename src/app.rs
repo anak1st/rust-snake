@@ -5,11 +5,11 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
 
 use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
@@ -80,6 +80,35 @@ impl App {
     }
 
     /// 统一处理键盘和窗口尺寸变化事件。
+    ///
+    /// **事件类型处理**：
+    ///
+    /// 1. **键盘事件 (Key)**：
+    ///    - 仅处理 `KeyEventKind::Press` 类型，忽略释放和重复事件
+    ///    - 终端窗口过小时，只响应 'q' 退出键
+    ///
+    /// 2. **方向控制**（WASD 或方向键）：
+    ///    - 在 Ready 状态下：输入方向键会同时启动游戏
+    ///    - 在 Running 状态下：仅更新方向
+    ///    - 在 Paused/GameOver 状态下：输入方向键会启动游戏（从 Ready 开始）
+    ///    - 禁止直接掉头（180度转向），由 `set_direction` 内部处理
+    ///
+    /// 3. **开始/暂停**（Space 或 Enter）：
+    ///    - Ready 状态 -> 开始游戏
+    ///    - Running 状态 -> 切换到暂停
+    ///    - Paused 状态 -> 继续游戏
+    ///    - GameOver 状态 -> 无操作
+    ///
+    /// 4. **重新开始**（r）：
+    ///    - 立即重置游戏到 Ready 状态，使用当前棋盘尺寸
+    ///
+    /// 5. **退出**（q）：
+    ///    - 设置 `should_quit = true`，下次循环检测到后会退出
+    ///
+    /// 6. **窗口调整**（Resize）：
+    ///    - 终端窗口大小改变时，重新计算棋盘尺寸
+    ///    - 如果新尺寸过小，显示提示而非游戏界面
+    ///    - 窗口调整会自动重开一局新游戏
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key) => {

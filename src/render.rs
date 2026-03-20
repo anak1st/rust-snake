@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, Position, RunState};
 
@@ -28,6 +28,31 @@ const BODY_COLOR: Color = Color::Green;
 const FOOD_COLOR: Color = Color::LightRed;
 
 /// 根据当前游戏状态绘制整个界面。
+///
+/// 界面布局采用垂直三段式结构：
+/// ```
+/// ┌─────────────────────────────────────┐
+/// │            Header (3行)              │  <- 顶部标题"Rust Snake"
+/// ├─────────────────────────────────────┤
+/// │           Status (4行)               │  <- 显示 Tick、分数、AI分数、数量、状态、方向
+/// ├─────────────────────────────────────┤
+/// │                                     │
+/// │           Board (自适应)             │  <- 游戏棋盘 + 可能的弹窗提示
+/// │                                     │
+/// ├─────────────────────────────────────┤
+/// │            Footer (3行)              │  <- 底部操作提示
+/// └─────────────────────────────────────┘
+/// ```
+///
+/// 颜色支持：
+/// - `no_color = true` 时，所有元素使用默认灰度显示，适合不支持彩色的终端
+/// - `no_color = false` 时，使用预定义的颜色方案区分不同元素
+///
+/// 状态相关的弹窗：
+/// - Ready: 显示"按 Enter、Space 或方向键开始"提示
+/// - Paused: 显示"游戏已暂停"提示
+/// - GameOver: 显示"游戏结束"提示
+/// - Running: 不显示弹窗，直接渲染棋盘内容
 pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_color: bool) {
     if window_too_small {
         draw_too_small(frame, no_color);
@@ -201,6 +226,30 @@ fn help_text(state: RunState) -> &'static str {
 }
 
 /// 渲染正常游玩中的棋盘内容。
+///
+/// 遍历棋盘上每一个格子，确定该格子应该显示什么字符和颜色。
+///
+/// **字符映射规则**：
+/// | 元素 | 字符 | 颜色 |
+/// |------|------|------|
+/// | 玩家蛇头 | @ | 亮绿色 (HEAD_COLOR) |
+/// | 玩家蛇身 | o | 绿色 (BODY_COLOR) |
+/// | 食物 | * | 亮红色 (FOOD_COLOR) |
+/// | 敌人蛇头 | A-F | 各自对应的亮色 |
+/// | 敌人蛇身 | a-f | 各自对应的暗色 |
+/// | 空地 | · | 暗灰色 (MUTED_COLOR) |
+///
+/// **渲染优先级**（从高到低）：
+/// 1. 玩家蛇头（因为玩家是主要控制对象，需要醒目）
+/// 2. 食物
+/// 3. 玩家蛇身
+/// 4. 敌人蛇（头和身）
+/// 5. 空地
+///
+/// 敌人使用不同的字母来区分：
+/// - 蛇头用大写字母：A, B, C, D, E, F（循环）
+/// - 蛇身用小写字母：a, b, c, d, e, f（循环）
+/// - 每条敌人蛇有配对的颜色（洋红、青、黄、红循环）
 fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     let (width, height) = game.board_size();
     let player_head = game.snake().back().copied();
@@ -245,6 +294,14 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
     rows
 }
 
+/// 将所有 AI 的方向格式化为可读字符串。
+///
+/// 格式示例："A^ Bv Cd" 表示：
+/// - A 蛇向上了
+/// - B 蛇向下了
+/// - C 蛇向右了
+///
+/// 每个 AI 用一个字母（标签）+ 方向符号表示。
 fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
     enemies
         .iter()
@@ -260,6 +317,7 @@ fn format_enemy_directions(enemies: &[EnemySnake]) -> String {
         .join(" ")
 }
 
+/// 将蛇的移动方向转换为符号表示。
 fn direction_label(direction: SnakeDirection) -> &'static str {
     match direction {
         SnakeDirection::Up => "^",
@@ -269,6 +327,12 @@ fn direction_label(direction: SnakeDirection) -> &'static str {
     }
 }
 
+/// 检查指定位置是否有 AI 蛇占据。
+///
+/// **返回值**：
+/// - `None`：该位置没有被任何 AI 占据
+/// - `Some((index, true))`：该位置是第 index 条 AI 的蛇头
+/// - `Some((index, false))`：该位置是第 index 条 AI 的蛇身（非头）
 fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(usize, bool)> {
     enemies.iter().enumerate().find_map(|(index, enemy)| {
         if Some(position) == enemy.body().back().copied() {
@@ -281,6 +345,19 @@ fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(usize, bool
     })
 }
 
+/// 获取指定 AI 蛇的显示字符和颜色。
+///
+/// **颜色分配**（按 index 循环）：
+/// | 蛇编号 | 蛇头颜色 | 蛇身颜色 |
+/// |--------|----------|----------|
+/// | 0 | 亮洋红 | 洋红 |
+/// | 1 | 亮青 | 青 |
+/// | 2 | 亮黄 | 黄 |
+/// | 3 | 亮红 | 红 |
+///
+/// **字符分配**：
+/// - 蛇头：enemy_label(index) 返回大写字母
+/// - 蛇身：enemy_body_label(index) 返回小写字母
 fn enemy_style(index: usize, is_head: bool) -> (&'static str, Color) {
     const HEAD_COLORS: [Color; 4] = [
         Color::LightMagenta,
@@ -305,6 +382,9 @@ fn enemy_style(index: usize, is_head: bool) -> (&'static str, Color) {
     (glyph, color)
 }
 
+/// 返回第 index 条 AI 蛇的蛇头标签（单字母大写）。
+///
+/// 标签按以下顺序循环：A, B, C, D, E, F, A, B, ...
 fn enemy_label(index: usize) -> &'static str {
     match index % 6 {
         0 => "A",
@@ -316,6 +396,10 @@ fn enemy_label(index: usize) -> &'static str {
     }
 }
 
+/// 返回第 index 条 AI 蛇的蛇身标签（单字母小写）。
+///
+/// 标签按以下顺序循环：a, b, c, d, e, f, a, b, ...
+/// 与 enemy_label 配对使用（index 相同时，蛇头是 A 则蛇身是 a）。
 fn enemy_body_label(index: usize) -> &'static str {
     match index % 6 {
         0 => "a",

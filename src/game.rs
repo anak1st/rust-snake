@@ -52,6 +52,7 @@ pub struct EnemySnake {
 }
 
 impl EnemySnake {
+    /// 创建一条新的 AI 蛇，初始随机漫步步数为 0。
     fn new(body: VecDeque<Position>, direction: Direction) -> Self {
         Self {
             direction,
@@ -77,6 +78,7 @@ impl EnemySnake {
         self.score
     }
 
+    /// 返回 AI 蛇头位置。如果身体为空，返回 (0, 0)。
     fn head(&self) -> Position {
         self.body.back().copied().unwrap_or(Position { x: 0, y: 0 })
     }
@@ -122,7 +124,10 @@ pub struct GameState {
 }
 
 impl GameState {
-    /// 创建一个默认尺寸的游戏状态。
+    /// 创建一个默认尺寸（16x12）的游戏状态。
+    ///
+    /// 初始化后游戏处于 Ready 状态，需要玩家按键才开始。
+    /// 默认生成 3 条 AI 蛇和 4 颗食物。
     pub fn new() -> Self {
         Self::with_board_size(16, 12)
     }
@@ -163,6 +168,31 @@ impl GameState {
     }
 
     /// 推进一帧游戏逻辑，处理玩家、AI、食物和碰撞。
+    ///
+    /// 游戏 tick 是核心逻辑推进函数，每 160ms 被调用一次。
+    /// 处理流程分为以下几个阶段：
+    ///
+    /// 1. **方向同步**：将 pending_direction（玩家输入）同步为实际生效的 direction
+    ///
+    /// 2. **玩家移动计算**：
+    ///    - 根据当前位置和方向计算下一步位置
+    ///    - 判断该位置是否有食物
+    ///
+    /// 3. **AI 移动规划**：
+    ///    - 为每条 AI 敌蛇计算下一步的移动意图（方向、是否吃到食物等）
+    ///    - 所有 AI 的规划在碰撞判断之前完成，确保公平性
+    ///
+    /// 4. **碰撞检测**：
+    ///    - 先判断玩家是否会撞墙、撞自身或撞 AI
+    ///    - 若玩家死亡，立即结束游戏
+    ///    - 再判断每个 AI 是否会撞死（撞墙、撞玩家、撞其他AI）
+    ///
+    /// 5. **状态更新**：
+    ///    - 玩家蛇前进一步，吃食物则增长，否则移除尾巴
+    ///    - 各 AI 蛇按各自的 plan 前进一步
+    ///    - 撞死的 AI 在同一帧重生到新位置
+    ///    - 补充被吃掉的食物
+    ///    - tick 计数器递增
     pub fn tick(&mut self) {
         if self.state != RunState::Running {
             return;
@@ -323,6 +353,24 @@ impl GameState {
     }
 
     /// 判断玩家下一步是否会导致游戏结束。
+    ///
+    /// 玩家死亡有四种可能：
+    ///
+    /// 1. **撞墙**：下一步位置超出棋盘边界
+    ///    - 通过 `hit_wall(next_head)` 判断
+    ///
+    /// 2. **撞自身**：下一步撞到自己的身体
+    ///    - 需要考虑"尾巴移动规则"：如果玩家要吃食物，尾巴不会移动，
+    ///      此时尾巴所在位置仍被视为被身体占用
+    ///    - 通过 `occupies_with_tail_rules(&self.snake, next_head, player_eats)` 判断
+    ///
+    /// 3. **撞 AI**：下一步撞到任意一条 AI 蛇的身体
+    ///    - 同样需要考虑 AI 是否会吃食物（尾巴是否移动）
+    ///    - 通过遍历所有 AI 的身体判断
+    ///
+    /// 4. **被 AI 头撞**：AI 的下一步位置与玩家下一步位置相同（头碰头）
+    ///    - AI 规划已经包含它们的下一步位置
+    ///    - 通过 `enemy_plans.iter().any(|plan| plan.next_head == next_head)` 判断
     fn player_collides(
         &self,
         next_head: Position,
@@ -342,6 +390,27 @@ impl GameState {
     }
 
     /// 判断指定 AI 下一步是否会撞死；撞死后会在同一帧重生。
+    ///
+    /// AI 死亡有六种可能：
+    ///
+    /// 1. **撞墙**：下一步位置超出棋盘边界
+    ///
+    /// 2. **撞自身**：下一步撞到自己的身体
+    ///    - 需要考虑该 AI 自己是否会吃食物
+    ///
+    /// 3. **撞玩家**：下一步撞到玩家蛇的身体
+    ///    - 需要考虑玩家是否会吃食物（玩家尾巴是否移动）
+    ///
+    /// 4. **撞其他 AI**：下一步撞到其他 AI 蛇的身体
+    ///    - 需要考虑其他 AI 是否会吃食物
+    ///    - 排除自己（other_index != enemy_index）
+    ///
+    /// 5. **被玩家头撞**：玩家的下一步位置与该 AI 的下一步位置相同
+    ///    - 这是玩家"先发制人"的情况，玩家走在 AI 前面
+    ///
+    /// 6. **被其他 AI 头撞**：其他 AI 的下一步位置与该 AI 的下一步位置相同
+    ///    - 两条 AI 蛇头碰头的情况
+    ///    - 排除自己（other_index != enemy_index）
     fn enemy_collides(
         &self,
         enemy_index: usize,
@@ -389,6 +458,36 @@ impl GameState {
         }
     }
 
+    /// 为 AI 敌蛇选择下一步的移动方向。
+    ///
+    /// AI 决策采用分层策略：
+    ///
+    /// **第一层：随机漫步（Random Walk）**
+    /// - 当 `random_walk_steps > 0` 时，AI 正在执行随机漫步
+    /// - 优先保持当前漫步方向（如果安全）
+    /// - 否则随机选择一个新的安全漫步方向
+    /// - 每走一步，漫步计数器递减
+    ///
+    /// **第二层：随机决定是否开始新漫步（15% 概率）**
+    /// - 以 15% 概率触发随机漫步行为
+    /// - 随机选择一个安全方向作为漫步方向
+    /// - 漫步步数随机设为 5-15 步
+    /// - 这是为了增加 AI 行为的不可预测性
+    ///
+    /// **第三层：追逐食物（Food Chase）**
+    /// - 找到离 AI 最近的食物（曼哈顿距离）
+    /// - 计算到达食物的优先方向列表（先水平后垂直，或反之）
+    /// - 按优先级尝试每个方向，选择第一个安全的
+    ///
+    /// **第四层：保持当前方向**
+    /// - 如果优先方向都不安全，尝试保持原方向（如果安全）
+    ///
+    /// **第五层：紧急逃生**
+    /// - 如果所有前进方向都不安全，从所有安全方向中随机选一个
+    /// - 排除会导致掉头的反向方向
+    ///
+    /// **兜底策略**
+    /// - 如果仍然没有安全方向，保持原方向不变（可能下一秒就撞死）
     fn choose_enemy_direction(&self, enemy_index: usize) -> NavigationDecision {
         let enemy = &self.enemies[enemy_index];
 
@@ -477,6 +576,20 @@ impl GameState {
         }
     }
 
+    /// 为随机漫步选择一个安全的方向。
+    ///
+    /// 从四个方向中随机尝试，返回第一个安全的方向。
+    /// 安全的定义是：不会撞墙、不会撞玩家、不会撞其他 AI。
+    ///
+    /// **选择顺序**：
+    /// 1. 随机打乱四个方向的顺序
+    /// 2. 遍历每个方向，排除掉头的反向方向
+    /// 3. 检查该方向的下一个位置是否安全
+    /// 4. 返回第一个安全方向
+    ///
+    /// **兜底逻辑**：
+    /// - 如果所有方向都不安全，尝试保持当前方向
+    /// - 如果当前方向也不安全，返回 Direction::Up（兜底）
     fn random_walk_direction(&self, enemy_index: usize, current_direction: Direction) -> Direction {
         let all = [
             Direction::Up,
@@ -511,6 +624,15 @@ impl GameState {
         Direction::Up
     }
 
+    /// 判断 AI 的下一步位置是否安全（不会立即撞死）。
+    ///
+    /// 安全意味着下一步位置：
+    /// 1. 不超出棋盘边界（不是撞墙）
+    /// 2. 不与玩家蛇身重叠（不是被玩家吃掉）
+    /// 3. 不与任何其他 AI 蛇身重叠（不是被其他 AI 吃掉）
+    ///
+    /// 注意：这里不检查该位置是否与食物重叠，因为吃食物是好事。
+    /// 注意：不检查自己是否会吃食物（尾巴规则），因为吃食物后尾巴会扩展。
     fn enemy_step_is_safe(&self, enemy_index: usize, next: Position) -> bool {
         if self.hit_wall(next) {
             return false;
@@ -543,6 +665,17 @@ impl GameState {
         }
     }
 
+    /// 尝试在指定 slot 位置生成一条 AI 蛇。
+    ///
+    /// 这个函数用于初始化时生成多条 AI。它会尝试把 AI 放置在
+    /// 远离玩家的位置，实现分散spawn的效果。
+    ///
+    /// **算法步骤**：
+    /// 1. 棋盘尺寸过小时直接返回 None
+    /// 2. 按与玩家所在行的距离对所有行排序，距离远的优先
+    /// 3. 对排序后的每行，从右到左尝试放置水平蛇身
+    /// 4. 检查放置位置是否有效（不与玩家、食物、其他 AI 重叠）
+    /// 5. 如果都没成功，fallback 到 `try_spawn_enemy` 随机生成
     fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<EnemySnake> {
         if self.width < 3 && self.height < 3 {
             return None;
@@ -571,6 +704,10 @@ impl GameState {
         self.try_spawn_enemy()
     }
 
+    /// 随机尝试生成一条 AI 蛇，最多尝试 256 次。
+    ///
+    /// 每次随机生成一个水平和垂直的蛇身布局，检查位置是否有效。
+    /// 如果棋盘太小（小于 3x3），直接返回 None。
     fn try_spawn_enemy(&self) -> Option<EnemySnake> {
         if self.width < 3 && self.height < 3 {
             return None;
@@ -586,6 +723,12 @@ impl GameState {
         None
     }
 
+    /// 检查生成的 AI 蛇身位置是否有效。
+    ///
+    /// 有效意味着蛇身不与以下任何元素重叠：
+    /// 1. 玩家蛇身的任何一段
+    /// 2. 任何食物位置
+    /// 3. 任何其他 AI 蛇身的任何一段
     fn enemy_spawn_is_valid(&self, body: &VecDeque<Position>) -> bool {
         if self.snake.iter().any(|segment| body.contains(segment)) {
             return false;
@@ -668,6 +811,20 @@ impl GameState {
     }
 
     /// 按尾巴是否会移动的规则判断某条蛇是否占用了指定位置。
+    ///
+    /// 这个函数处理贪吃蛇游戏中的一个关键细节：**尾巴移动规则**。
+    ///
+    /// 正常情况下，蛇移动时尾巴会向前移动一格。但如果蛇刚吃了食物，
+    /// 尾巴不会移动（因为食物位置变成了新的尾巴），蛇身长度因此增加一格。
+    ///
+    /// **判断逻辑**：
+    /// - `index == 0` 的 segment 是尾巴
+    /// - 如果 `grows == true`（蛇要吃食物），尾巴不会移动，
+    ///   此时尾巴位置仍被视为被身体占用（因为它下一秒还在那里）
+    /// - 如果 `grows == false`（蛇不吃食物），尾巴会移动走，
+    ///   此时尾巴位置不被视为被占用（下一秒那里是空的）
+    ///
+    /// **返回值**：如果指定位置被蛇身占用（考虑上述尾巴规则），返回 true
     fn occupies_with_tail_rules(
         &self,
         snake: &VecDeque<Position>,
@@ -688,6 +845,12 @@ impl GameState {
         }
     }
 
+    /// 计算目标食物数量。
+    ///
+    /// 目标食物数量 = min(FOOD_COUNT, 棋盘剩余空格数)
+    ///
+    /// 其中"棋盘剩余空格数" = 棋盘总面积 - 玩家蛇身长度 - 所有 AI 蛇身长度之和。
+    /// 这个限制确保食物不会生成在蛇身上。
     fn target_food_count(&self) -> usize {
         let occupied = self.snake.len()
             + self
@@ -769,6 +932,12 @@ impl GameState {
         }
     }
 
+    /// 生成一条水平放置的敌蛇身体。
+    ///
+    /// 生成一条长度为 3 的水平蛇身：
+    /// - head_x: 蛇头 x 坐标
+    /// - y: 蛇身所在的 y 坐标
+    /// - 蛇身从左到右：tail=(head_x, y), middle=(head_x+1, y), head=(head_x+2, y)
     fn horizontal_enemy_body(head_x: u16, y: u16) -> VecDeque<Position> {
         let mut snake = VecDeque::new();
         snake.push_back(Position { x: head_x + 2, y });
