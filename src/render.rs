@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, Position, RunState};
 
@@ -21,7 +21,11 @@ const TEXT_COLOR: Color = Color::White;
 /// 次要信息的弱化颜色。
 const MUTED_COLOR: Color = Color::DarkGray;
 /// 食物的强调颜色。
-const FOOD_COLOR: Color = Color::LightRed;
+const FOOD_COLOR: Color = Color::Green;
+/// 超级果实的强调颜色。
+const SUPER_FRUIT_COLOR: Color = Color::LightYellow;
+/// 炸弹的危险颜色。
+const BOMB_COLOR: Color = Color::Red;
 /// 主界面统一边框颜色。
 const MAIN_BORDER_COLOR: Color = Color::White;
 
@@ -246,13 +250,15 @@ fn help_text(state: RunState) -> &'static str {
 /// | 玩家蛇头 | 玩家自身配置 | 玩家自身配置 |
 /// | 玩家蛇身 | 玩家自身配置 | 玩家自身配置 |
 /// | 食物 | * | 亮红色 (FOOD_COLOR) |
+/// | 超级果实 | $ | 亮黄色 (SUPER_FRUIT_COLOR) |
+/// | 炸弹 | X | 红色 (BOMB_COLOR) |
 /// | 敌人蛇头 | A-F | 各自对应的亮色 |
 /// | 敌人蛇身 | a-f | 各自对应的暗色 |
 /// | 空地 | · | 暗灰色 (MUTED_COLOR) |
 ///
 /// **渲染优先级**（从高到低）：
 /// 1. 玩家蛇头（因为玩家是主要控制对象，需要醒目）
-/// 2. 食物
+/// 2. 物品（普通食物、超级果实、炸弹）
 /// 3. 玩家蛇身
 /// 4. 敌人蛇（头和身）
 /// 5. 空地
@@ -290,6 +296,18 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
                 Span::styled(
                     "*",
                     style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD),
+                )
+            } else if game.super_foods().contains(&position) {
+                // 超级果实：用 $ 符号
+                Span::styled(
+                    "$",
+                    style_with_color(SUPER_FRUIT_COLOR, no_color).add_modifier(Modifier::BOLD),
+                )
+            } else if game.bombs().contains(&position) {
+                // 炸弹：用 X 符号
+                Span::styled(
+                    "X",
+                    style_with_color(BOMB_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if player.body().contains(&position) {
                 // 玩家蛇身：用 o 符号

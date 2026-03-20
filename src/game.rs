@@ -6,6 +6,10 @@ use std::collections::VecDeque;
 const AI_SNAKE_COUNT: usize = 3;
 /// 默认同时生成的食物数量。
 const FOOD_COUNT: usize = 4;
+/// 默认同时生成的超级食物数量。
+const SUPER_FOOD_COUNT: usize = 1;
+/// 默认同时生成的炸弹数量。
+const BOMB_COUNT: usize = 2;
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +62,8 @@ pub struct Snake {
     body: VecDeque<Position>,
     /// 当前累计得分。
     score: u32,
+    /// 未来还应继续增长的节数。
+    pending_growth: u16,
     /// 该蛇的固定外观配置。
     appearance: SnakeAppearance,
 }
@@ -89,6 +95,7 @@ impl Snake {
             direction,
             body,
             score: 0,
+            pending_growth: 0,
             appearance,
         }
     }
@@ -304,9 +311,32 @@ struct NavigationDecision {
 #[derive(Debug, Clone, Copy)]
 struct EnemyPlan {
     next_head: Position,
-    eats_food: bool,
+    consumable: Option<ConsumableKind>,
+    growth_amount: u16,
+    score_gain: u32,
+    hits_bomb: bool,
     navigation: NavigationDecision,
     crashes: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConsumableKind {
+    Food,
+    SuperFood,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TileEffect {
+    consumable: Option<ConsumableKind>,
+    growth_amount: u16,
+    score_gain: u32,
+    hits_bomb: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CrashRecipient {
+    Player,
+    Enemy(usize),
 }
 
 /// 封装一局贪吃蛇的完整状态。
@@ -325,6 +355,10 @@ pub struct GameState {
     enemies: Vec<EnemySnake>,
     /// 当前棋盘上的所有食物位置。
     foods: Vec<Position>,
+    /// 当前棋盘上的所有超级食物位置。
+    super_foods: Vec<Position>,
+    /// 当前棋盘上的所有炸弹位置。
+    bombs: Vec<Position>,
 }
 
 impl GameState {
@@ -352,6 +386,8 @@ impl GameState {
             player,
             enemies: Vec::with_capacity(AI_SNAKE_COUNT),
             foods: Vec::new(),
+            super_foods: Vec::new(),
+            bombs: Vec::new(),
         };
 
         for slot in 0..AI_SNAKE_COUNT {
@@ -361,7 +397,7 @@ impl GameState {
             game.enemies.push(enemy);
         }
 
-        game.refill_foods();
+        game.refill_items();
         game
     }
 
@@ -409,7 +445,7 @@ impl GameState {
 
         // 计算玩家下一步的位置，并判断是否会吃到食物
         let player_next = self.next_position(self.player_head(), self.player.direction());
-        let player_eats = self.foods.contains(&player_next);
+        let player_effect = self.tile_effect(player_next);
 
         // 为所有 AI 预规划下一步的移动（方向、是否吃食物等）
         let mut enemy_plans = Vec::with_capacity(self.enemies.len());
@@ -418,38 +454,48 @@ impl GameState {
         }
 
         // 检测玩家是否会碰撞死亡（撞墙、撞自身、撞AI、头碰头）
-        let player_crashes = self.player_collides(player_next, player_eats, &enemy_plans);
+        let player_crash_recipient =
+            self.player_collision_recipient(player_next, player_effect, &enemy_plans);
+        let player_crashes = player_crash_recipient.is_some();
         if player_crashes {
+            if let Some(CrashRecipient::Enemy(enemy_index)) = player_crash_recipient {
+                let growth = self.player.body().len() as u16;
+                Self::grant_collision_reward(&mut self.enemies[enemy_index].snake, growth);
+            }
             self.state = RunState::GameOver;
             return;
         }
 
         // 玩家成功移动，吃食物则增长，否则移除尾巴
-        self.advance_player(player_next, player_eats);
+        self.advance_player(player_next, player_effect);
 
         // 检测每个 AI 是否会碰撞死亡
-        let crash_flags = (0..enemy_plans.len())
+        let crash_results = (0..enemy_plans.len())
             .map(|enemy_index| {
-                self.enemy_collides(enemy_index, player_next, player_eats, &enemy_plans)
+                self.enemy_collision_recipient(enemy_index, player_next, &enemy_plans)
             })
             .collect::<Vec<_>>();
 
         // 将碰撞检测结果写回 AI 规划中
-        for (plan, crashes) in enemy_plans.iter_mut().zip(crash_flags.into_iter()) {
-            plan.crashes = crashes;
+        for (plan, recipient) in enemy_plans.iter_mut().zip(crash_results.iter().copied()) {
+            plan.crashes = recipient.is_some();
         }
 
         // 根据碰撞检测结果，更新每个 AI 的状态（移动或重生）
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
+                if let Some(recipient) = crash_results[enemy_index] {
+                    let growth = self.enemies[enemy_index].body().len() as u16;
+                    self.reward_collision_recipient(recipient, growth);
+                }
                 self.respawn_enemy(enemy_index);
             } else {
                 self.advance_enemy(enemy_index, plan);
             }
         }
 
-        // 补充被吃掉的食物，保持食物数量达标
-        self.refill_foods();
+        // 补充被吃掉的物品，保持数量达标
+        self.refill_items();
 
         // tick 计数器递增，记录游戏进行的时间
         self.tick_count += 1;
@@ -529,36 +575,53 @@ impl GameState {
         &self.foods
     }
 
+    /// 返回当前所有超级果实位置。
+    pub fn super_foods(&self) -> &[Position] {
+        &self.super_foods
+    }
+
+    /// 返回当前所有炸弹位置。
+    pub fn bombs(&self) -> &[Position] {
+        &self.bombs
+    }
+
     /// 返回玩家蛇头位置。
     fn player_head(&self) -> Position {
         self.player.head()
     }
 
-    /// 让玩家蛇前进一步，并处理吃食物后的增长。
-    fn advance_player(&mut self, next_head: Position, eats_food: bool) {
-        self.player.snake.body.push_back(next_head);
-        if eats_food {
-            self.player.snake.score += 1;
-            self.remove_food(next_head);
-        } else {
-            self.player.snake.body.pop_front();
-        }
+    /// 让玩家蛇前进一步，并处理吃到物品后的增长。
+    fn advance_player(&mut self, next_head: Position, effect: TileEffect) {
+        Self::advance_snake(
+            &mut self.player.snake,
+            next_head,
+            effect.growth_amount,
+            effect.score_gain,
+        );
+        self.consume_tile(next_head, effect);
     }
 
-    /// 让指定 AI 前进一步，并处理吃食物后的增长。
+    /// 让指定 AI 前进一步，并处理吃到物品后的增长。
     fn advance_enemy(&mut self, enemy_index: usize, plan: EnemyPlan) {
         let enemy = &mut self.enemies[enemy_index];
         enemy.snake.direction = plan.navigation.direction;
         enemy.random_walk_steps = plan.navigation.random_walk_steps;
         enemy.random_walk_direction = plan.navigation.random_walk_direction;
-        enemy.snake.body.push_back(plan.next_head);
-
-        if plan.eats_food {
-            enemy.snake.score += 1;
-            self.remove_food(plan.next_head);
-        } else {
-            enemy.snake.body.pop_front();
-        }
+        Self::advance_snake(
+            &mut enemy.snake,
+            plan.next_head,
+            plan.growth_amount,
+            plan.score_gain,
+        );
+        self.consume_tile(
+            plan.next_head,
+            TileEffect {
+                consumable: plan.consumable,
+                growth_amount: plan.growth_amount,
+                score_gain: plan.score_gain,
+                hits_bomb: plan.hits_bomb,
+            },
+        );
     }
 
     /// 判断玩家下一步是否会导致游戏结束。
@@ -580,22 +643,37 @@ impl GameState {
     /// 4. **被 AI 头撞**：AI 的下一步位置与玩家下一步位置相同（头碰头）
     ///    - AI 规划已经包含它们的下一步位置
     ///    - 通过 `enemy_plans.iter().any(|plan| plan.next_head == next_head)` 判断
-    fn player_collides(
+    fn player_collision_recipient(
         &self,
         next_head: Position,
-        player_eats: bool,
+        player_effect: TileEffect,
         enemy_plans: &[EnemyPlan],
-    ) -> bool {
-        self.hit_wall(next_head)
-            || self.occupies_with_tail_rules(self.player.body(), next_head, player_eats)
-            || self
-                .enemies
-                .iter()
-                .zip(enemy_plans.iter())
-                .any(|(enemy, plan)| {
-                    self.occupies_with_tail_rules(enemy.body(), next_head, plan.eats_food)
-                })
-            || enemy_plans.iter().any(|plan| plan.next_head == next_head)
+    ) -> Option<CrashRecipient> {
+        if self.hit_wall(next_head)
+            || player_effect.hits_bomb
+            || self.occupies_with_tail_rules(
+                self.player.body(),
+                next_head,
+                self.snake_grows(&self.player.snake, player_effect.growth_amount),
+            )
+        {
+            return Some(CrashRecipient::Player);
+        }
+
+        if let Some((enemy_index, _)) = self
+            .enemies
+            .iter()
+            .enumerate()
+            .find(|(_, enemy)| enemy.head() == next_head)
+        {
+            return Some(CrashRecipient::Enemy(enemy_index));
+        }
+
+        enemy_plans
+            .iter()
+            .enumerate()
+            .find(|(_, plan)| plan.next_head == next_head)
+            .map(|(enemy_index, _)| CrashRecipient::Enemy(enemy_index))
     }
 
     /// 判断指定 AI 下一步是否会撞死；撞死后会在同一帧重生。
@@ -620,36 +698,48 @@ impl GameState {
     /// 6. **被其他 AI 头撞**：其他 AI 的下一步位置与该 AI 的下一步位置相同
     ///    - 两条 AI 蛇头碰头的情况
     ///    - 排除自己（other_index != enemy_index）
-    fn enemy_collides(
+    fn enemy_collision_recipient(
         &self,
         enemy_index: usize,
         player_next: Position,
-        player_eats: bool,
         enemy_plans: &[EnemyPlan],
-    ) -> bool {
+    ) -> Option<CrashRecipient> {
         let enemy = &self.enemies[enemy_index];
         let plan = enemy_plans[enemy_index];
 
-        self.hit_wall(plan.next_head)
-            || self.occupies_with_tail_rules(enemy.body(), plan.next_head, plan.eats_food)
-            || self.occupies_with_tail_rules(self.player.body(), plan.next_head, player_eats)
-            || self.enemies.iter().zip(enemy_plans.iter()).enumerate().any(
-                |(other_index, (other_enemy, other_plan))| {
-                    other_index != enemy_index
-                        && self.occupies_with_tail_rules(
-                            other_enemy.body(),
-                            plan.next_head,
-                            other_plan.eats_food,
-                        )
-                },
+        if self.hit_wall(plan.next_head)
+            || plan.hits_bomb
+            || self.occupies_with_tail_rules(
+                enemy.body(),
+                plan.next_head,
+                self.snake_grows(&enemy.snake, plan.growth_amount),
             )
-            || plan.next_head == player_next
-            || enemy_plans
+        {
+            return Some(CrashRecipient::Enemy(enemy_index));
+        }
+
+        if self.player.head() == plan.next_head || plan.next_head == player_next {
+            return Some(CrashRecipient::Player);
+        }
+
+        if let Some((other_index, _)) =
+            self.enemies
                 .iter()
                 .enumerate()
-                .any(|(other_index, other_plan)| {
-                    other_index != enemy_index && other_plan.next_head == plan.next_head
+                .find(|(other_index, other_enemy)| {
+                    *other_index != enemy_index && other_enemy.head() == plan.next_head
                 })
+        {
+            return Some(CrashRecipient::Enemy(other_index));
+        }
+
+        enemy_plans
+            .iter()
+            .enumerate()
+            .find(|(other_index, other_plan)| {
+                *other_index != enemy_index && other_plan.next_head == plan.next_head
+            })
+            .map(|(other_index, _)| CrashRecipient::Enemy(other_index))
     }
 
     /// 为一条 AI 计算下一步移动意图。
@@ -657,11 +747,14 @@ impl GameState {
         let navigation = self.choose_enemy_direction(enemy_index);
         let enemy = &self.enemies[enemy_index];
         let next_head = self.next_position(enemy.head(), navigation.direction);
-        let eats_food = self.foods.contains(&next_head);
+        let effect = self.tile_effect(next_head);
 
         EnemyPlan {
             next_head,
-            eats_food,
+            consumable: effect.consumable,
+            growth_amount: effect.growth_amount,
+            score_gain: effect.score_gain,
+            hits_bomb: effect.hits_bomb,
             navigation,
             crashes: false,
         }
@@ -735,8 +828,8 @@ impl GameState {
             };
         }
 
-        // 默认行为：追逐最近的食物
-        let target = self.closest_food_to(enemy.head());
+        // 默认行为：追逐最近的可食用物品
+        let target = self.closest_consumable_to(enemy.head());
         let preferred = self.preferred_directions(enemy.head(), target);
 
         // 按优先级尝试每个方向，选择第一个安全的
@@ -855,8 +948,9 @@ impl GameState {
     ///
     /// 安全意味着下一步位置：
     /// 1. 不超出棋盘边界（不是撞墙）
-    /// 2. 不与玩家蛇身重叠（不是被玩家吃掉）
-    /// 3. 不与任何其他 AI 蛇身重叠（不是被其他 AI 吃掉）
+    /// 2. 不撞到炸弹
+    /// 3. 不与自己的身体重叠
+    /// 4. 不直接撞到其他蛇的蛇头
     ///
     /// 注意：这里不检查该位置是否与食物重叠，因为吃食物是好事。
     /// 注意：不检查自己是否会吃食物（尾巴规则），因为吃食物后尾巴会扩展。
@@ -866,20 +960,26 @@ impl GameState {
             return false;
         }
 
+        if self.bombs.contains(&next) {
+            return false;
+        }
+
         // 检查是否撞到自己的尾巴（假设自己不会吃食物）
         if self.occupies_with_tail_rules(self.enemies[enemy_index].body(), next, false) {
             return false;
         }
 
-        // 检查是否撞到玩家蛇身（假设玩家不会吃食物）
-        if self.occupies_with_tail_rules(self.player.body(), next, false) {
+        // 检查是否直接撞到玩家蛇头。
+        if self.player.head() == next {
             return false;
         }
 
-        // 检查是否撞到其他 AI 蛇身（假设其他 AI 不会吃食物）
-        !self.enemies.iter().enumerate().any(|(other_index, enemy)| {
-            other_index != enemy_index && self.occupies_with_tail_rules(enemy.body(), next, false)
-        })
+        // 检查是否直接撞到其他 AI 蛇头。
+        !self
+            .enemies
+            .iter()
+            .enumerate()
+            .any(|(other_index, enemy)| other_index != enemy_index && enemy.head() == next)
     }
 
     /// 让 AI 重生到远离玩家的位置，避免卡死后整局无法继续。
@@ -989,16 +1089,23 @@ impl GameState {
             return false;
         }
 
+        if self.super_foods.iter().any(|fruit| body.contains(fruit))
+            || self.bombs.iter().any(|bomb| body.contains(bomb))
+        {
+            return false;
+        }
+
         !self
             .enemies
             .iter()
             .any(|enemy| enemy.body().iter().any(|segment| body.contains(segment)))
     }
 
-    /// 返回离指定坐标最近的一颗食物。
-    fn closest_food_to(&self, origin: Position) -> Position {
+    /// 返回离指定坐标最近的一颗可食用物品。
+    fn closest_consumable_to(&self, origin: Position) -> Position {
         self.foods
             .iter()
+            .chain(self.super_foods.iter())
             .copied()
             .min_by_key(|food| Self::manhattan_distance(origin, *food))
             .unwrap_or(origin)
@@ -1088,36 +1195,142 @@ impl GameState {
         })
     }
 
-    /// 按配置数量补齐食物。
-    fn refill_foods(&mut self) {
-        while self.foods.len() < self.target_food_count() {
-            let food = self.random_empty_position();
-            self.foods.push(food);
+    /// 按配置数量补齐所有物品。
+    fn refill_items(&mut self) {
+        self.refill_food_positions(FOOD_COUNT);
+        self.refill_super_food_positions(SUPER_FOOD_COUNT);
+        self.refill_bomb_positions(BOMB_COUNT);
+    }
+
+    /// 按目标数量补齐普通食物。
+    fn refill_food_positions(&mut self, target: usize) {
+        while self.foods.len() < target && self.empty_cell_count() > 0 {
+            self.foods.push(self.random_empty_position());
         }
     }
 
-    /// 计算目标食物数量。
-    ///
-    /// 目标食物数量 = min(FOOD_COUNT, 棋盘剩余空格数)
-    ///
-    /// 其中"棋盘剩余空格数" = 棋盘总面积 - 玩家蛇身长度 - 所有 AI 蛇身长度之和。
-    /// 这个限制确保食物不会生成在蛇身上。
-    fn target_food_count(&self) -> usize {
-        let occupied = self.player.body().len()
+    /// 按目标数量补齐超级食物。
+    fn refill_super_food_positions(&mut self, target: usize) {
+        while self.super_foods.len() < target && self.empty_cell_count() > 0 {
+            self.super_foods.push(self.random_empty_position());
+        }
+    }
+
+    /// 按目标数量补齐炸弹。
+    fn refill_bomb_positions(&mut self, target: usize) {
+        while self.bombs.len() < target && self.empty_cell_count() > 0 {
+            self.bombs.push(self.random_empty_position());
+        }
+    }
+
+    /// 返回指定位置对应的格子效果。
+    fn tile_effect(&self, position: Position) -> TileEffect {
+        if self.foods.contains(&position) {
+            return TileEffect {
+                consumable: Some(ConsumableKind::Food),
+                growth_amount: 1,
+                score_gain: 1,
+                hits_bomb: false,
+            };
+        }
+
+        if self.super_foods.contains(&position) {
+            return TileEffect {
+                consumable: Some(ConsumableKind::SuperFood),
+                growth_amount: 3,
+                score_gain: 3,
+                hits_bomb: false,
+            };
+        }
+
+        TileEffect {
+            consumable: None,
+            growth_amount: 0,
+            score_gain: 0,
+            hits_bomb: self.bombs.contains(&position),
+        }
+    }
+
+    /// 从棋盘上消费一个格子效果。
+    fn consume_tile(&mut self, position: Position, effect: TileEffect) {
+        match effect.consumable {
+            Some(ConsumableKind::Food) => self.remove_food(position),
+            Some(ConsumableKind::SuperFood) => self.remove_super_fruit(position),
+            None => {}
+        }
+
+        if effect.hits_bomb {
+            self.remove_bomb(position);
+        }
+    }
+
+    /// 计算某条蛇在本次前进中是否会增长。
+    fn snake_grows(&self, snake: &Snake, growth_amount: u16) -> bool {
+        snake.pending_growth > 0 || growth_amount > 0
+    }
+
+    /// 推进一条蛇，并根据成长值决定是否保留尾巴。
+    fn advance_snake(snake: &mut Snake, next_head: Position, growth_amount: u16, score_gain: u32) {
+        snake.body.push_back(next_head);
+        snake.score += score_gain;
+
+        let total_growth = snake.pending_growth.saturating_add(growth_amount);
+        if total_growth > 0 {
+            snake.pending_growth = total_growth.saturating_sub(1);
+        } else {
+            snake.body.pop_front();
+        }
+    }
+
+    /// 将碰撞带来的长度奖励转换为后续增长和分数。
+    fn grant_collision_reward(snake: &mut Snake, growth: u16) {
+        snake.pending_growth = snake.pending_growth.saturating_add(growth);
+        snake.score = snake.score.saturating_add(growth as u32);
+    }
+
+    /// 将碰撞奖励发给被撞上的蛇。
+    fn reward_collision_recipient(&mut self, recipient: CrashRecipient, growth: u16) {
+        match recipient {
+            CrashRecipient::Player => Self::grant_collision_reward(&mut self.player.snake, growth),
+            CrashRecipient::Enemy(enemy_index) => {
+                Self::grant_collision_reward(&mut self.enemies[enemy_index].snake, growth);
+            }
+        }
+    }
+
+    /// 从棋盘上移除一颗被吃掉的普通食物。
+    fn remove_food(&mut self, position: Position) {
+        if let Some(index) = self.foods.iter().position(|food| *food == position) {
+            self.foods.swap_remove(index);
+        }
+    }
+
+    /// 从棋盘上移除一颗被吃掉的超级果实。
+    fn remove_super_fruit(&mut self, position: Position) {
+        if let Some(index) = self.super_foods.iter().position(|fruit| *fruit == position) {
+            self.super_foods.swap_remove(index);
+        }
+    }
+
+    /// 从棋盘上移除一个炸弹。
+    fn remove_bomb(&mut self, position: Position) {
+        if let Some(index) = self.bombs.iter().position(|bomb| *bomb == position) {
+            self.bombs.swap_remove(index);
+        }
+    }
+
+    /// 返回当前仍可用于生成物品的空格数。
+    fn empty_cell_count(&self) -> usize {
+        let area = self.width as usize * self.height as usize;
+        let occupied_by_snakes = self.player.body().len()
             + self
                 .enemies
                 .iter()
                 .map(|enemy| enemy.body().len())
                 .sum::<usize>();
-        let area = self.width as usize * self.height as usize;
-        FOOD_COUNT.min(area.saturating_sub(occupied))
-    }
+        let occupied_by_items = self.foods.len() + self.super_foods.len() + self.bombs.len();
 
-    /// 从棋盘上移除一颗被吃掉的食物。
-    fn remove_food(&mut self, position: Position) {
-        if let Some(index) = self.foods.iter().position(|food| *food == position) {
-            self.foods.swap_remove(index);
-        }
+        area.saturating_sub(occupied_by_snakes + occupied_by_items)
     }
 
     /// 随机生成一个不与任意蛇身或食物重叠的位置。
@@ -1132,6 +1345,8 @@ impl GameState {
 
             if !self.player.body().contains(&candidate)
                 && !self.foods.contains(&candidate)
+                && !self.super_foods.contains(&candidate)
+                && !self.bombs.contains(&candidate)
                 && !self
                     .enemies
                     .iter()
@@ -1216,7 +1431,9 @@ impl GameState {
 
 #[cfg(test)]
 mod tests {
-    use super::{Direction, GameState, RunState};
+    use std::collections::VecDeque;
+
+    use super::{Direction, GameState, Position, RunState};
 
     #[test]
     /// 验证每次 tick 都会让玩家蛇头向前推进一格。
@@ -1271,6 +1488,8 @@ mod tests {
         let game = GameState::with_board_size(12, 8);
 
         assert_eq!(game.foods().len(), 4);
+        assert_eq!(game.super_foods().len(), 1);
+        assert_eq!(game.bombs().len(), 2);
     }
 
     #[test]
@@ -1302,5 +1521,74 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    /// 验证玩家吃到炸弹后会立即结束游戏。
+    fn bomb_ends_game_for_player() {
+        let mut game = GameState::with_board_size(12, 8);
+        game.foods.clear();
+        game.super_foods.clear();
+        game.bombs = vec![Position { x: 6, y: 4 }];
+        game.enemies.clear();
+        game.start();
+
+        game.tick();
+
+        assert_eq!(game.run_state(), RunState::GameOver);
+    }
+
+    #[test]
+    /// 验证超级果实会带来额外得分，并在后续 tick 继续增长。
+    fn super_fruit_grants_extra_growth() {
+        let mut game = GameState::with_board_size(18, 8);
+        game.foods.clear();
+        game.super_foods = vec![Position { x: 8, y: 4 }];
+        game.bombs.clear();
+        game.enemies.clear();
+        game.start();
+
+        game.tick();
+        assert_eq!(game.score(), 3);
+        assert_eq!(game.player().body().len(), 4);
+
+        game.tick();
+        game.tick();
+
+        assert_eq!(game.player().body().len(), 6);
+    }
+
+    #[test]
+    /// 验证蛇撞上另一条蛇时，会把自己的长度转给对方。
+    fn crashing_into_enemy_transfers_length() {
+        let mut game = GameState::with_board_size(16, 8);
+        game.foods.clear();
+        game.super_foods.clear();
+        game.bombs.clear();
+        game.player.snake.body = VecDeque::from([
+            Position { x: 1, y: 4 },
+            Position { x: 2, y: 4 },
+            Position { x: 3, y: 4 },
+        ]);
+        game.player.snake.direction = Direction::Right;
+        game.player.pending_direction = Direction::Right;
+        game.enemies = vec![super::EnemySnake::new(
+            VecDeque::from([
+                Position { x: 6, y: 4 },
+                Position { x: 5, y: 4 },
+                Position { x: 4, y: 4 },
+            ]),
+            Direction::Left,
+            super::SnakeAppearance::for_slot(0),
+        )];
+        game.start();
+
+        game.tick();
+
+        assert_eq!(game.run_state(), RunState::GameOver);
+        assert_eq!(game.enemies()[0].score(), 3);
+        assert_eq!(game.enemies()[0].snake.pending_growth, 3);
+
+        assert_eq!(game.player().body().len(), 3);
     }
 }
