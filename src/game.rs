@@ -514,11 +514,6 @@ impl GameState {
         self.player.direction()
     }
 
-    /// 返回玩家蛇身坐标队列，尾部在前，头部在后。
-    pub fn snake(&self) -> &VecDeque<Position> {
-        self.player.body()
-    }
-
     /// 返回所有 AI 敌蛇。
     pub fn enemies(&self) -> &[EnemySnake] {
         &self.enemies
@@ -1228,11 +1223,11 @@ mod tests {
     fn snake_moves_forward_on_tick() {
         let mut game = GameState::with_board_size(18, 8);
         game.start();
-        let old_head = game.snake().back().copied().unwrap();
+        let old_head = game.player().body().back().copied().unwrap();
 
         game.tick();
 
-        let new_head = game.snake().back().copied().unwrap();
+        let new_head = game.player().body().back().copied().unwrap();
         assert_eq!(new_head.x, old_head.x + 1);
         assert_eq!(new_head.y, old_head.y);
     }
@@ -1288,7 +1283,7 @@ mod tests {
             game.enemies()
                 .iter()
                 .flat_map(|enemy| enemy.body().iter())
-                .all(|segment| !game.snake().contains(segment))
+                .all(|segment| !game.player().body().contains(segment))
         );
     }
 
