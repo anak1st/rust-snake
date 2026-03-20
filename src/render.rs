@@ -54,11 +54,13 @@ const FOOD_COLOR: Color = Color::LightRed;
 /// - GameOver: 显示"游戏结束"提示
 /// - Running: 不显示弹窗，直接渲染棋盘内容
 pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_color: bool) {
+    // 终端窗口过小时，显示专用提示界面
     if window_too_small {
         draw_too_small(frame, no_color);
         return;
     }
 
+    // 将终端区域划分为三部分：顶部标题区、中间内容区、底部帮助区
     let [header_area, body_area, footer_area] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -68,16 +70,19 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
         ])
         .areas(frame.area());
 
+    // 将中间内容区进一步划分为状态信息区和棋盘区
     let [info_area, board_area] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(INFO_HEIGHT), Constraint::Min(3)])
         .areas(body_area);
 
+    // 创建顶部标题组件
     let header = Paragraph::new(Line::from("Rust Snake"))
         .alignment(Alignment::Center)
         .style(style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD))
         .block(styled_block("Title", Color::LightCyan, no_color));
 
+    // 根据游戏状态确定状态文本颜色
     let status_text = match game.run_state() {
         RunState::Ready => Span::styled("Ready", style_with_color(Color::Cyan, no_color)),
         RunState::Running => Span::styled("Running", style_with_color(Color::Green, no_color)),
@@ -85,14 +90,18 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
         RunState::GameOver => Span::styled("Game Over", style_with_color(Color::Red, no_color)),
     };
 
+    // 将玩家方向转换为文本
     let direction_text = match game.direction() {
         SnakeDirection::Up => "Up",
         SnakeDirection::Down => "Down",
         SnakeDirection::Left => "Left",
         SnakeDirection::Right => "Right",
     };
+
+    // 格式化所有 AI 的方向显示
     let ai_direction_text = format_enemy_directions(game.enemies());
 
+    // 创建状态信息面板，显示 Tick 数、分数、AI 分数、AI 数量、状态、方向等
     let info = Paragraph::new(vec![
         Line::from(vec![
             Span::styled("Tick: ", style_with_color(MUTED_COLOR, no_color)),
@@ -138,11 +147,13 @@ pub fn draw(frame: &mut Frame, game: &GameState, window_too_small: bool, no_colo
     ])
     .block(styled_block("Status", Color::LightBlue, no_color));
 
+    // 创建底部帮助栏，显示当前状态对应的操作提示
     let footer = Paragraph::new(Line::from(help_text(game.run_state())))
         .alignment(Alignment::Center)
         .style(style_with_color(MUTED_COLOR, no_color))
         .block(styled_block("Help", Color::Gray, no_color));
 
+    // 将所有组件渲染到对应的区域
     frame.render_widget(header, header_area);
     frame.render_widget(info, info_area);
     draw_board(frame, board_area, game, no_color);
@@ -251,28 +262,42 @@ fn help_text(state: RunState) -> &'static str {
 /// - 蛇身用小写字母：a, b, c, d, e, f（循环）
 /// - 每条敌人蛇有配对的颜色（洋红、青、黄、红循环）
 fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
+    // 获取棋盘尺寸
     let (width, height) = game.board_size();
+
+    // 提取玩家蛇头位置，避免在循环中重复访问
     let player_head = game.snake().back().copied();
+
+    // 预分配行数组
     let mut rows = Vec::with_capacity(height as usize);
 
+    // 按行遍历棋盘（从上到下）
     for y in 0..height {
+        // 预分配每行的单元格数组
         let mut cells = Vec::with_capacity(width as usize);
 
+        // 按列遍历（从左到右）
         for x in 0..width {
             let position = Position { x, y };
+
+            // 根据渲染优先级确定该位置应该显示什么
             let cell = if Some(position) == player_head {
+                // 玩家蛇头：优先级最高，用 @ 符号
                 Span::styled(
                     "@",
                     style_with_color(HEAD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if game.foods().contains(&position) {
+                // 食物：用 * 符号
                 Span::styled(
                     "*",
                     style_with_color(FOOD_COLOR, no_color).add_modifier(Modifier::BOLD),
                 )
             } else if game.snake().contains(&position) {
+                // 玩家蛇身：用 o 符号
                 Span::styled("o", style_with_color(BODY_COLOR, no_color))
             } else if let Some((enemy_index, is_head)) = enemy_cell(game.enemies(), position) {
+                // AI 蛇身或蛇头：用字母区分
                 let (glyph, color) = enemy_style(enemy_index, is_head);
                 let style = if is_head {
                     style_with_color(color, no_color).add_modifier(Modifier::BOLD)
@@ -282,12 +307,15 @@ fn render_live_board(game: &GameState, no_color: bool) -> Vec<Line<'static>> {
 
                 Span::styled(glyph, style)
             } else {
+                // 空地：用 · 符号
                 Span::styled("·", style_with_color(MUTED_COLOR, no_color))
             };
 
+            // 将单元格添加到当前行
             cells.push(cell);
         }
 
+        // 将完成的行添加到结果中
         rows.push(Line::from(cells));
     }
 
@@ -483,9 +511,11 @@ fn style_with_color(color: Color, no_color: bool) -> Style {
 
 /// 在指定区域中计算一个居中的内容块。
 fn centered_area(area: ratatui::layout::Rect, width: u16, height: u16) -> ratatui::layout::Rect {
+    // 限制 popup 的最大尺寸，确保不超过可用区域
     let popup_width = width.min(area.width.saturating_sub(2)).max(1);
     let popup_height = height.min(area.height.saturating_sub(2)).max(1);
 
+    // 垂直方向分割：上下填充 + 中间内容
     let vertical: [ratatui::layout::Rect; 3] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -495,6 +525,7 @@ fn centered_area(area: ratatui::layout::Rect, width: u16, height: u16) -> ratatu
         ])
         .areas(area);
 
+    // 水平方向分割：左右填充 + 中间内容
     let horizontal: [ratatui::layout::Rect; 3] = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -504,5 +535,6 @@ fn centered_area(area: ratatui::layout::Rect, width: u16, height: u16) -> ratatu
         ])
         .areas(vertical[1]);
 
+    // 返回居中的内容区域
     horizontal[1]
 }

@@ -194,38 +194,47 @@ impl GameState {
     ///    - 补充被吃掉的食物
     ///    - tick 计数器递增
     pub fn tick(&mut self) {
+        // 检查游戏是否正在运行，非运行状态直接返回
         if self.state != RunState::Running {
             return;
         }
 
+        // 将待生效的方向同步为实际生效的方向
         self.direction = self.pending_direction;
 
+        // 计算玩家下一步的位置，并判断是否会吃到食物
         let player_next = self.next_position(self.player_head(), self.direction);
         let player_eats = self.foods.contains(&player_next);
-        let mut enemy_plans = Vec::with_capacity(self.enemies.len());
 
+        // 为所有 AI 预规划下一步的移动（方向、是否吃食物等）
+        let mut enemy_plans = Vec::with_capacity(self.enemies.len());
         for enemy_index in 0..self.enemies.len() {
             enemy_plans.push(self.plan_enemy_move(enemy_index));
         }
 
+        // 检测玩家是否会碰撞死亡（撞墙、撞自身、撞AI、头碰头）
         let player_crashes = self.player_collides(player_next, player_eats, &enemy_plans);
         if player_crashes {
             self.state = RunState::GameOver;
             return;
         }
 
+        // 玩家成功移动，吃食物则增长，否则移除尾巴
         self.advance_player(player_next, player_eats);
 
+        // 检测每个 AI 是否会碰撞死亡
         let crash_flags = (0..enemy_plans.len())
             .map(|enemy_index| {
                 self.enemy_collides(enemy_index, player_next, player_eats, &enemy_plans)
             })
             .collect::<Vec<_>>();
 
+        // 将碰撞检测结果写回 AI 规划中
         for (plan, crashes) in enemy_plans.iter_mut().zip(crash_flags.into_iter()) {
             plan.crashes = crashes;
         }
 
+        // 根据碰撞检测结果，更新每个 AI 的状态（移动或重生）
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
                 self.respawn_enemy(enemy_index);
@@ -234,7 +243,10 @@ impl GameState {
             }
         }
 
+        // 补充被吃掉的食物，保持食物数量达标
         self.refill_foods();
+
+        // tick 计数器递增，记录游戏进行的时间
         self.tick_count += 1;
     }
 
@@ -491,7 +503,9 @@ impl GameState {
     fn choose_enemy_direction(&self, enemy_index: usize) -> NavigationDecision {
         let enemy = &self.enemies[enemy_index];
 
+        // 检查是否正在进行随机漫步
         if enemy.random_walk_steps > 0 {
+            // 尝试保持当前漫步方向（如果安全）
             if let Some(walk_dir) = enemy.random_walk_direction {
                 let next = self.next_position(enemy.head(), walk_dir);
                 if self.enemy_step_is_safe(enemy_index, next) {
@@ -503,6 +517,7 @@ impl GameState {
                 }
             }
 
+            // 当前漫步方向不安全，重新选择随机漫步方向
             let walk_dir = self.random_walk_direction(enemy_index, enemy.direction);
             return NavigationDecision {
                 direction: walk_dir,
@@ -511,6 +526,7 @@ impl GameState {
             };
         }
 
+        // 15% 概率开始新的随机漫步
         let mut rng = rand::rng();
         if rng.random_range(0..100) < 15 {
             let walk_dir = self.random_walk_direction(enemy_index, enemy.direction);
@@ -522,10 +538,13 @@ impl GameState {
             };
         }
 
+        // 默认行为：追逐最近的食物
         let target = self.closest_food_to(enemy.head());
         let preferred = self.preferred_directions(enemy.head(), target);
 
+        // 按优先级尝试每个方向，选择第一个安全的
         for direction in preferred {
+            // 跳过会导致掉头的方向
             if Self::is_opposite(enemy.direction, direction) {
                 continue;
             }
@@ -540,6 +559,7 @@ impl GameState {
             }
         }
 
+        // 优先方向都不安全，尝试保持当前方向
         let next = self.next_position(enemy.head(), enemy.direction);
         if self.enemy_step_is_safe(enemy_index, next) {
             return NavigationDecision {
@@ -549,6 +569,7 @@ impl GameState {
             };
         }
 
+        // 所有前进方向都不安全，从所有安全方向中随机选一个
         let safe_dirs = [
             Direction::Up,
             Direction::Down,
@@ -569,6 +590,7 @@ impl GameState {
             };
         }
 
+        // 兜底：没有安全方向，保持原方向不变
         NavigationDecision {
             direction: enemy.direction,
             random_walk_steps: 0,
@@ -600,27 +622,35 @@ impl GameState {
         let mut rng = rand::rng();
         let mut safe_directions = Vec::new();
 
+        // 随机尝试每个方向，将安全的收集起来
         for _ in 0..all.len() {
+            // 随机选择一个方向
             let direction = all[rng.random_range(0..all.len())];
+
+            // 跳过会导致掉头的方向
             if Self::is_opposite(current_direction, direction) {
                 continue;
             }
 
+            // 检查该方向是否安全
             let next = self.next_position(self.enemies[enemy_index].head(), direction);
             if self.enemy_step_is_safe(enemy_index, next) {
                 safe_directions.push(direction);
             }
         }
 
+        // 返回第一个收集到的安全方向
         if let Some(&direction) = safe_directions.first() {
             return direction;
         }
 
+        // 所有方向都不安全，尝试保持当前方向
         let next = self.next_position(self.enemies[enemy_index].head(), current_direction);
         if self.enemy_step_is_safe(enemy_index, next) {
             return current_direction;
         }
 
+        // 兜底：返回 Direction::Up
         Direction::Up
     }
 
@@ -634,18 +664,22 @@ impl GameState {
     /// 注意：这里不检查该位置是否与食物重叠，因为吃食物是好事。
     /// 注意：不检查自己是否会吃食物（尾巴规则），因为吃食物后尾巴会扩展。
     fn enemy_step_is_safe(&self, enemy_index: usize, next: Position) -> bool {
+        // 检查是否会撞墙
         if self.hit_wall(next) {
             return false;
         }
 
+        // 检查是否撞到自己的尾巴（假设自己不会吃食物）
         if self.occupies_with_tail_rules(&self.enemies[enemy_index].body, next, false) {
             return false;
         }
 
+        // 检查是否撞到玩家蛇身（假设玩家不会吃食物）
         if self.occupies_with_tail_rules(&self.snake, next, false) {
             return false;
         }
 
+        // 检查是否撞到其他 AI 蛇身（假设其他 AI 不会吃食物）
         !self.enemies.iter().enumerate().any(|(other_index, enemy)| {
             other_index != enemy_index && self.occupies_with_tail_rules(&enemy.body, next, false)
         })
@@ -677,30 +711,40 @@ impl GameState {
     /// 4. 检查放置位置是否有效（不与玩家、食物、其他 AI 重叠）
     /// 5. 如果都没成功，fallback 到 `try_spawn_enemy` 随机生成
     fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<EnemySnake> {
+        // 棋盘太小无法放置 AI 蛇，直接返回 None
         if self.width < 3 && self.height < 3 {
             return None;
         }
 
+        // 获取玩家所在的行
         let player_row = self.player_head().y;
+
+        // 生成所有行的列表，并按与玩家距离排序（距离远的优先）
         let mut rows = (0..self.height).collect::<Vec<_>>();
         rows.sort_by_key(|row| row.abs_diff(player_row));
         rows.reverse();
 
+        // 通过轮转实现多个 slot 之间的分散
         let row_count = rows.len();
         if row_count > 0 {
             rows.rotate_left(slot % row_count);
         }
 
+        // 遍历每行，从右到左尝试放置水平蛇身
         for y in rows {
             for head_x in (0..=self.width.saturating_sub(3)).rev() {
+                // 创建一条水平放置的敌蛇，头部朝左
                 let enemy =
                     EnemySnake::new(Self::horizontal_enemy_body(head_x, y), Direction::Left);
+
+                // 检查放置位置是否有效
                 if self.enemy_spawn_is_valid(enemy.body()) {
                     return Some(enemy);
                 }
             }
         }
 
+        // 所有预定位置都无效，fallback 到随机生成
         self.try_spawn_enemy()
     }
 
