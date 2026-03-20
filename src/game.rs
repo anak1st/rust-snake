@@ -660,12 +660,9 @@ impl GameState {
             return Some(CrashRecipient::Player);
         }
 
-        if let Some((enemy_index, _)) = self
-            .enemies
-            .iter()
-            .enumerate()
-            .find(|(_, enemy)| enemy.head() == next_head)
-        {
+        if let Some((enemy_index, _)) = self.enemies.iter().enumerate().find(|(enemy_index, _)| {
+            self.enemy_occupies_position(*enemy_index, next_head, enemy_plans)
+        }) {
             return Some(CrashRecipient::Enemy(enemy_index));
         }
 
@@ -722,14 +719,14 @@ impl GameState {
             return Some(CrashRecipient::Player);
         }
 
-        if let Some((other_index, _)) =
-            self.enemies
-                .iter()
-                .enumerate()
-                .find(|(other_index, other_enemy)| {
-                    *other_index != enemy_index && other_enemy.head() == plan.next_head
-                })
-        {
+        if self.player.body().contains(&plan.next_head) {
+            return Some(CrashRecipient::Player);
+        }
+
+        if let Some((other_index, _)) = self.enemies.iter().enumerate().find(|(other_index, _)| {
+            *other_index != enemy_index
+                && self.enemy_occupies_position(*other_index, plan.next_head, enemy_plans)
+        }) {
             return Some(CrashRecipient::Enemy(other_index));
         }
 
@@ -969,17 +966,15 @@ impl GameState {
             return false;
         }
 
-        // 检查是否直接撞到玩家蛇头。
-        if self.player.head() == next {
+        // 检查是否直接撞到玩家蛇。
+        if self.player_occupies_position(next, 0) {
             return false;
         }
 
-        // 检查是否直接撞到其他 AI 蛇头。
-        !self
-            .enemies
-            .iter()
-            .enumerate()
-            .any(|(other_index, enemy)| other_index != enemy_index && enemy.head() == next)
+        // 检查是否直接撞到其他 AI 蛇。
+        !self.enemies.iter().enumerate().any(|(other_index, _)| {
+            other_index != enemy_index && self.enemy_occupies_position(other_index, next, &[])
+        })
     }
 
     /// 让 AI 重生到远离玩家的位置，避免卡死后整局无法继续。
@@ -1193,6 +1188,35 @@ impl GameState {
             let is_tail = index == 0;
             *segment == position && (grows || !is_tail)
         })
+    }
+
+    /// 判断玩家蛇在本 tick 结束前是否占据指定位置。
+    fn player_occupies_position(&self, position: Position, growth_amount: u16) -> bool {
+        self.occupies_with_tail_rules(
+            self.player.body(),
+            position,
+            self.snake_grows(&self.player.snake, growth_amount),
+        )
+    }
+
+    /// 判断指定 AI 蛇在本 tick 结束前是否占据指定位置。
+    fn enemy_occupies_position(
+        &self,
+        enemy_index: usize,
+        position: Position,
+        enemy_plans: &[EnemyPlan],
+    ) -> bool {
+        let enemy = &self.enemies[enemy_index];
+        let growth_amount = enemy_plans
+            .get(enemy_index)
+            .map(|plan| plan.growth_amount)
+            .unwrap_or(0);
+
+        self.occupies_with_tail_rules(
+            enemy.body(),
+            position,
+            self.snake_grows(&enemy.snake, growth_amount),
+        )
     }
 
     /// 按配置数量补齐所有物品。
@@ -1590,5 +1614,90 @@ mod tests {
         assert_eq!(game.enemies()[0].snake.pending_growth, 3);
 
         assert_eq!(game.player().body().len(), 3);
+    }
+
+    #[test]
+    /// 验证玩家撞进敌蛇身体时也会死亡，而不是直接穿过。
+    fn player_crashes_into_enemy_body() {
+        let mut game = GameState::with_board_size(16, 8);
+        game.foods.clear();
+        game.super_foods.clear();
+        game.bombs.clear();
+        game.player.snake.body = VecDeque::from([
+            Position { x: 3, y: 4 },
+            Position { x: 4, y: 4 },
+            Position { x: 5, y: 4 },
+        ]);
+        game.player.snake.direction = Direction::Right;
+        game.player.pending_direction = Direction::Right;
+        game.enemies = vec![super::EnemySnake::new(
+            VecDeque::from([
+                Position { x: 7, y: 4 },
+                Position { x: 6, y: 4 },
+                Position { x: 5, y: 4 },
+            ]),
+            Direction::Up,
+            super::SnakeAppearance::for_slot(0),
+        )];
+        game.start();
+
+        game.tick();
+
+        assert_eq!(game.run_state(), RunState::GameOver);
+        assert_eq!(game.enemies()[0].score(), 3);
+        assert_eq!(game.enemies()[0].snake.pending_growth, 3);
+    }
+
+    #[test]
+    /// 验证敌蛇下一步撞进玩家身体时，会判定为撞上玩家。
+    fn enemy_collision_detects_player_body() {
+        let mut game = GameState::with_board_size(16, 8);
+        game.foods.clear();
+        game.super_foods.clear();
+        game.bombs.clear();
+        game.player.snake.body = VecDeque::from([
+            Position { x: 4, y: 4 },
+            Position { x: 5, y: 4 },
+            Position { x: 6, y: 4 },
+        ]);
+        game.player.snake.direction = Direction::Right;
+        game.player.pending_direction = Direction::Right;
+        game.enemies = vec![super::EnemySnake::new(
+            VecDeque::from([
+                Position { x: 2, y: 4 },
+                Position { x: 3, y: 4 },
+                Position { x: 4, y: 4 },
+            ]),
+            Direction::Right,
+            super::SnakeAppearance::for_slot(0),
+        )];
+        game.advance_player(
+            Position { x: 7, y: 4 },
+            super::TileEffect {
+                consumable: None,
+                growth_amount: 0,
+                score_gain: 0,
+                hits_bomb: false,
+            },
+        );
+
+        let enemy_plans = vec![super::EnemyPlan {
+            next_head: Position { x: 5, y: 4 },
+            consumable: None,
+            growth_amount: 0,
+            score_gain: 0,
+            hits_bomb: false,
+            navigation: super::NavigationDecision {
+                direction: Direction::Right,
+                random_walk_steps: 0,
+                random_walk_direction: None,
+            },
+            crashes: false,
+        }];
+
+        assert_eq!(
+            game.enemy_collision_recipient(0, Position { x: 7, y: 4 }, &enemy_plans),
+            Some(super::CrashRecipient::Player)
+        );
     }
 }
