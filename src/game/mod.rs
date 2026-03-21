@@ -1,3 +1,5 @@
+//! 汇总游戏核心状态、共享类型与对外接口。
+
 use crate::config::game::{AI_SNAKE_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WIDTH};
 
 mod ai;

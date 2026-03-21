@@ -1,3 +1,5 @@
+//! 实现每个 tick 的核心结算、碰撞与物品流转。
+
 use std::collections::VecDeque;
 
 use rand::Rng;

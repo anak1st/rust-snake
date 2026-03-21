@@ -1,3 +1,5 @@
+//! 定义蛇实体、控制模式与外观数据。
+
 use std::collections::VecDeque;
 
 use ratatui::style::Color;

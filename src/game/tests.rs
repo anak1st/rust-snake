@@ -1,3 +1,5 @@
+//! 覆盖 game 模块核心规则与回归场景。
+
 use std::collections::VecDeque;
 
 use crate::config::game::{
