@@ -1,0 +1,140 @@
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+
+use crate::game::{EnemySnake, GameState, Position};
+
+use super::AnimationFrame;
+use super::style::{
+    BOMB_COLOR, DEATH_FLASH_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR,
+    style_with_color, styled_block,
+};
+
+#[derive(Clone, Copy)]
+struct BoardCell {
+    glyph: &'static str,
+    color: Color,
+    bold: bool,
+}
+
+impl BoardCell {
+    fn new(glyph: &'static str, color: Color, bold: bool) -> Self {
+        Self { glyph, color, bold }
+    }
+
+    fn into_span(self, no_color: bool) -> Span<'static> {
+        let mut style = style_with_color(self.color, no_color);
+        if self.bold {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+
+        Span::styled(self.glyph, style)
+    }
+}
+
+pub(crate) fn draw_board(
+    frame: &mut Frame,
+    area: Rect,
+    game: &GameState,
+    animation: &AnimationFrame,
+    no_color: bool,
+) {
+    let board = Paragraph::new(render_live_board(game, animation, no_color)).block(styled_block(
+        "Board",
+        MAIN_BORDER_COLOR,
+        no_color,
+    ));
+    frame.render_widget(board, area);
+}
+
+fn render_live_board(
+    game: &GameState,
+    animation: &AnimationFrame,
+    no_color: bool,
+) -> Vec<Line<'static>> {
+    let (width, height) = game.board_size();
+    let mut rows = Vec::with_capacity(height as usize);
+
+    for y in 0..height {
+        let mut cells = Vec::with_capacity(width as usize);
+        for x in 0..width {
+            let position = Position { x, y };
+            let cell = board_cell_for_position(game, position);
+            let animated = animate_cell(game, position, cell, animation);
+            cells.push(animated.into_span(no_color));
+        }
+        rows.push(Line::from(cells));
+    }
+
+    rows
+}
+
+fn board_cell_for_position(game: &GameState, position: Position) -> BoardCell {
+    let player = game.player();
+
+    if position == player.head() {
+        return BoardCell::new(player.head_glyph(), player.head_color(), true);
+    }
+
+    if game.foods().contains(&position) || game.legacy_foods().contains(&position) {
+        return BoardCell::new("*", FOOD_COLOR, true);
+    }
+
+    if game.super_foods().contains(&position) {
+        return BoardCell::new("$", SUPER_FRUIT_COLOR, true);
+    }
+
+    if game.bombs().contains(&position) {
+        return BoardCell::new("X", BOMB_COLOR, true);
+    }
+
+    if player.body().contains(&position) {
+        return BoardCell::new(player.body_glyph(), player.body_color(), false);
+    }
+
+    if let Some((enemy, is_head)) = enemy_cell(game.enemies(), position) {
+        return if is_head {
+            BoardCell::new(enemy.head_glyph(), enemy.head_color(), true)
+        } else {
+            BoardCell::new(enemy.body_glyph(), enemy.body_color(), false)
+        };
+    }
+
+    BoardCell::new("·", MUTED_COLOR, false)
+}
+
+fn animate_cell(
+    game: &GameState,
+    position: Position,
+    cell: BoardCell,
+    animation: &AnimationFrame,
+) -> BoardCell {
+    if !animation.death_flash_visible {
+        return cell;
+    }
+
+    let player = game.player();
+    if !player.body().contains(&position) {
+        return cell;
+    }
+
+    if position == player.head() {
+        return BoardCell::new(player.head_glyph(), DEATH_FLASH_COLOR, true);
+    }
+
+    BoardCell::new(player.body_glyph(), DEATH_FLASH_COLOR, true)
+}
+
+fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(&EnemySnake, bool)> {
+    enemies.iter().find_map(|enemy| {
+        if Some(position) == enemy.body().back().copied() {
+            Some((enemy, true))
+        } else if enemy.body().contains(&position) {
+            Some((enemy, false))
+        } else {
+            None
+        }
+    })
+}

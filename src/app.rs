@@ -18,6 +18,7 @@ use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
 /// 应用层状态，负责协调终端、输入和游戏循环。
 pub struct App {
     game: GameState,
+    render_state: render::RenderState,
     should_quit: bool,
     window_too_small: bool,
     no_color: bool,
@@ -28,6 +29,7 @@ impl App {
     pub fn new(no_color: bool) -> Self {
         Self {
             game: GameState::new(),
+            render_state: render::RenderState::new(),
             should_quit: false,
             window_too_small: false,
             no_color,
@@ -73,6 +75,8 @@ impl App {
                 }
             }
 
+            self.render_state.sync(&self.game, now);
+
             let mut should_render = false;
             while now.duration_since(last_render_frame) >= render_rate {
                 last_render_frame += render_rate;
@@ -80,7 +84,7 @@ impl App {
             }
 
             if should_render {
-                self.draw_frame(terminal)?;
+                self.draw_frame(terminal, now)?;
             }
         }
 
@@ -88,9 +92,21 @@ impl App {
     }
 
     /// 按当前状态绘制一帧界面。
-    fn draw_frame(&self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-        terminal
-            .draw(|frame| render::draw(frame, &self.game, self.window_too_small, self.no_color))?;
+    fn draw_frame(
+        &self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        now: Instant,
+    ) -> Result<()> {
+        terminal.draw(|frame| {
+            render::draw(
+                frame,
+                &self.game,
+                &self.render_state,
+                now,
+                self.window_too_small,
+                self.no_color,
+            )
+        })?;
         Ok(())
     }
 
