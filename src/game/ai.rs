@@ -229,16 +229,20 @@ impl GameState {
     fn other_snakes_occupy_position(&self, snake: &Snake, position: Position) -> bool {
         (self.player.is_alive()
             && !std::ptr::eq(&self.player, snake)
-            && self.player_occupies_position(position, 0))
-            || self
-                .enemies
-                .iter()
-                .enumerate()
-                .any(|(enemy_index, other_enemy)| {
-                    other_enemy.is_alive()
-                        && !std::ptr::eq(other_enemy, snake)
-                        && self.enemy_occupies_position(enemy_index, position, &[])
-                })
+            && self.occupies_with_tail_rules(
+                self.player.body(),
+                position,
+                self.snake_might_grow_next_tick(&self.player),
+            ))
+            || self.enemies.iter().any(|other_enemy| {
+                other_enemy.is_alive()
+                    && !std::ptr::eq(other_enemy, snake)
+                    && self.occupies_with_tail_rules(
+                        other_enemy.body(),
+                        position,
+                        self.snake_might_grow_next_tick(other_enemy),
+                    )
+            })
     }
 
     /// 判断是否有其他蛇能够在下一步争抢同一个头部位置，并在头撞头中不输。
@@ -277,6 +281,23 @@ impl GameState {
             !snake.direction().is_opposite(direction)
                 && self.next_position(snake.head(), direction) == position
         })
+    }
+
+    /// 判断一条蛇在下一步是否存在“会吃到东西从而保留尾巴”的可能。
+    fn snake_might_grow_next_tick(&self, snake: &Snake) -> bool {
+        snake.pending_growth > 0
+            || [
+                Direction::Up,
+                Direction::Down,
+                Direction::Left,
+                Direction::Right,
+            ]
+            .into_iter()
+            .filter(|&direction| !snake.direction().is_opposite(direction))
+            .any(|direction| {
+                let next = self.next_position(snake.head(), direction);
+                !self.hit_wall(next) && self.tile_effect(next).growth_amount > 0
+            })
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。

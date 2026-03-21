@@ -321,19 +321,6 @@ impl GameState {
         })
     }
 
-    /// 判断玩家蛇在本 tick 结束前是否占据指定位置。
-    pub(super) fn player_occupies_position(&self, position: Position, growth_amount: u16) -> bool {
-        if !self.player.is_alive() {
-            return false;
-        }
-
-        self.occupies_with_tail_rules(
-            self.player.body(),
-            position,
-            self.player.grows(growth_amount),
-        )
-    }
-
     /// 判断指定 AI 蛇在本 tick 结束前是否占据指定位置。
     pub(super) fn enemy_occupies_position(
         &self,

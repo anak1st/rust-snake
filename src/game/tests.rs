@@ -525,3 +525,31 @@ fn ai_avoids_losing_head_on_cell() {
 
     assert!(!game.snake_step_is_safe(game.player(), Position { x: 4, y: 4 }));
 }
+
+#[test]
+/// 验证当敌蛇下一步可能增长时，AI 不会把敌蛇尾巴格误判成安全。
+fn ai_treats_enemy_tail_as_blocked_when_enemy_might_grow() {
+    let mut game = GameState::with_board_size(14, 8);
+    game.foods = vec![Position { x: 7, y: 4 }];
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.player.body = VecDeque::from([
+        Position { x: 1, y: 4 },
+        Position { x: 2, y: 4 },
+        Position { x: 3, y: 4 },
+    ]);
+    game.player.direction = Direction::Right;
+    game.player.set_ai_controlled(true);
+    game.enemies = vec![super::Snake::new_ai(
+        VecDeque::from([
+            Position { x: 4, y: 4 },
+            Position { x: 5, y: 4 },
+            Position { x: 6, y: 4 },
+        ]),
+        Direction::Right,
+        super::SnakeAppearance::for_slot(0),
+    )];
+
+    assert!(!game.snake_step_is_safe(game.player(), Position { x: 4, y: 4 }));
+}
