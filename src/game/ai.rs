@@ -12,6 +12,30 @@ use crate::config::game::{
 
 use super::{Direction, GameState, NavigationDecision, Position, Snake, SnakePlan};
 
+/// 表示某个候选方向对 AI 的风险等级。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoveRisk {
+    /// 不会立即死亡，且落点后的连通空间足够展开。
+    Safe,
+    /// 不会立即死亡，但可能把自己压进狭小区域。
+    TightSpace,
+    /// 会立即撞死或根本不是合法候选方向。
+    Deadly,
+}
+
+/// 表示 AI 某一层策略产出的移动意图。
+#[derive(Debug, Clone)]
+struct NavigationIntent {
+    /// 这层策略最想采用的方向。
+    direction: Direction,
+    /// 如果主意图风险过高，可用于逃生的候选方向顺序。
+    escape_directions: Vec<Direction>,
+    /// 应写回 AI 状态中的随机漫步剩余步数。
+    random_walk_steps: u8,
+    /// 逃生后是否继续维持随机漫步状态。
+    preserve_random_walk: bool,
+}
+
 impl Snake {
     /// 为当前 AI 计算下一步移动意图。
     ///
@@ -55,103 +79,72 @@ impl Snake {
     /// # 返回值
     /// 返回包含方向、随机漫步步数和方向的导航决策
     fn choose_direction(&self, game: &GameState) -> NavigationDecision {
-        // 如果正在随机漫步，尝试继续沿当前方向走
+        let intent = if let Some(intent) = self.continue_random_walk_intent() {
+            intent
+        } else if let Some(intent) = self.start_random_walk_intent() {
+            intent
+        } else if let Some(intent) = self.food_navigation_intent(game) {
+            intent
+        } else {
+            return Self::steady_navigation(self.direction());
+        };
+
+        self.resolve_navigation(game, intent)
+    }
+
+    /// 在已有随机漫步状态时，优先尝试延续原方向。
+    fn continue_random_walk_intent(&self) -> Option<NavigationIntent> {
         let ai_state = self.ai_state();
-        if ai_state.random_walk_steps > 0 {
-            if let Some(walk_dir) = ai_state.random_walk_direction {
-                let next = game.next_position(self.head(), walk_dir);
-                if game.snake_step_is_safe(self, next)
-                    && game.snake_step_has_adequate_space(self, next)
-                {
-                    return NavigationDecision {
-                        direction: walk_dir,
-                        random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
-                        random_walk_direction: Some(walk_dir),
-                    };
-                }
-            }
+        if ai_state.random_walk_steps == 0 {
+            return None;
+        }
 
-            // 当前方向不安全，重新选择一个安全的随机方向
-            let walk_dir = self.random_walk_direction(game);
-            return NavigationDecision {
-                direction: walk_dir,
+        ai_state
+            .random_walk_direction
+            .map(|direction| NavigationIntent {
+                direction,
+                escape_directions: self.shuffled_directions(),
                 random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
-                random_walk_direction: Some(walk_dir),
-            };
-        }
+                preserve_random_walk: true,
+            })
+    }
 
-        // 按配置概率触发随机漫步模式
+    /// 按配置概率进入新的随机漫步。
+    fn start_random_walk_intent(&self) -> Option<NavigationIntent> {
         let mut rng = rand::rng();
-        if rng.random_range(0..100) < AI_RANDOM_WALK_CHANCE_PERCENT {
-            let walk_dir = self.random_walk_direction(game);
-            let steps = rng.random_range(AI_RANDOM_WALK_MIN_STEPS..=AI_RANDOM_WALK_MAX_STEPS);
-            return NavigationDecision {
-                direction: walk_dir,
-                random_walk_steps: steps,
-                random_walk_direction: Some(walk_dir),
-            };
+        if rng.random_range(0..100) >= AI_RANDOM_WALK_CHANCE_PERCENT {
+            return None;
         }
 
-        // 追逐最近的食物
+        let steps = rng.random_range(AI_RANDOM_WALK_MIN_STEPS..=AI_RANDOM_WALK_MAX_STEPS);
+        let directions = self.shuffled_directions();
+
+        self.first_non_opposite_direction(&directions)
+            .map(|direction| NavigationIntent {
+                direction,
+                escape_directions: directions,
+                random_walk_steps: steps,
+                preserve_random_walk: true,
+            })
+    }
+
+    /// 先尝试朝最近食物前进。
+    fn food_navigation_intent(&self, game: &GameState) -> Option<NavigationIntent> {
         let target = game.closest_consumable_to(self.head());
         let preferred = game.preferred_directions(self.head(), target);
 
-        if let Some(direction) = self.pick_direction_with_space_preference(game, preferred) {
-            return Self::steady_navigation(direction);
-        }
-
-        // 如果当前方向既安全又留有足够活动空间，优先保持方向
-        let next = game.next_position(self.head(), self.direction());
-        if game.snake_step_is_safe(self, next) && game.snake_step_has_adequate_space(self, next) {
-            return Self::steady_navigation(self.direction());
-        }
-
-        // 紧急逃生，从剩余安全方向中任选一个
-        if let Some(direction) = self.pick_direction_with_space_preference(
-            game,
-            [
-                Direction::Up,
-                Direction::Down,
-                Direction::Left,
-                Direction::Right,
-            ],
-        ) {
-            return Self::steady_navigation(direction);
-        }
-
-        // 尝试任何即时安全的方向
-        if game.snake_step_is_safe(self, next) {
-            return Self::steady_navigation(self.direction());
-        }
-
-        // 最后尝试非掉头的安全方向
-        let safe_dirs = [
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-            Direction::Right,
-        ]
-        .into_iter()
-        .filter(|&direction| {
-            !self.direction().is_opposite(direction)
-                && game.snake_step_is_safe(self, game.next_position(self.head(), direction))
-        });
-
-        if let Some(direction) = safe_dirs.into_iter().next() {
-            return Self::steady_navigation(direction);
-        }
-
-        // 无路可走，保持当前方向（将导致死亡）
-        Self::steady_navigation(self.direction())
+        self.first_non_opposite_direction(&preferred)
+            .map(|direction| NavigationIntent {
+                direction,
+                escape_directions: preferred,
+                random_walk_steps: 0,
+                preserve_random_walk: false,
+            })
     }
 
-    /// 为随机漫步选择一个安全的方向。
-    ///
-    /// 随机打乱所有方向后逐个尝试，从中选择一个安全的方向。
-    /// 如果没有安全方向，则尝试保持当前方向；
-    /// 如果当前方向也不安全，则默认返回向上。
-    fn random_walk_direction(&self, game: &GameState) -> Direction {
-        let mut directions = [
+    /// 返回一组打乱后的方向顺序，用于随机漫步或无偏逃生。
+    fn shuffled_directions(&self) -> Vec<Direction> {
+        let mut directions = vec![
             Direction::Up,
             Direction::Down,
             Direction::Left,
@@ -159,17 +152,15 @@ impl Snake {
         ];
         let mut rng = rand::rng();
         directions.shuffle(&mut rng);
+        directions
+    }
 
-        if let Some(direction) = self.pick_direction_with_space_preference(game, directions) {
-            return direction;
-        }
-
-        let next = game.next_position(self.head(), self.direction());
-        if game.snake_step_is_safe(self, next) {
-            return self.direction();
-        }
-
-        Direction::Up
+    /// 返回候选列表中第一个非掉头方向。
+    fn first_non_opposite_direction(&self, directions: &[Direction]) -> Option<Direction> {
+        directions
+            .iter()
+            .copied()
+            .find(|&direction| !self.direction().is_opposite(direction))
     }
 
     /// 返回一个不携带随机漫步状态的普通导航结果。
@@ -190,11 +181,66 @@ impl Snake {
         rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
     }
 
-    /// 按给定顺序挑选方向，并优先选择“安全且活动空间足够”的候选。
+    /// 统一处理某个意图的风险检查与避险回退。
     ///
-    /// 如果所有安全方向都会把蛇压进较小空间，则回退到第一个即时安全方向，
-    /// 避免在绝境中因为过度保守而直接放弃可走的路。
-    fn pick_direction_with_space_preference(
+    /// 如果主意图方向足够安全，则直接采用；
+    /// 否则只在这里集中挑选逃生方向。
+    fn resolve_navigation(&self, game: &GameState, intent: NavigationIntent) -> NavigationDecision {
+        if self
+            .direction_risk(game, intent.direction)
+            .accept_for_intent()
+        {
+            return self.navigation_for_direction(
+                intent.direction,
+                intent.random_walk_steps,
+                intent.preserve_random_walk,
+            );
+        }
+
+        self.choose_escape_navigation(
+            game,
+            intent.escape_directions,
+            intent.random_walk_steps,
+            intent.preserve_random_walk,
+        )
+        .unwrap_or_else(|| Self::steady_navigation(self.direction()))
+    }
+
+    /// 按给定方向和 AI 状态生成最终导航结果。
+    fn navigation_for_direction(
+        &self,
+        direction: Direction,
+        random_walk_steps: u8,
+        preserve_random_walk: bool,
+    ) -> NavigationDecision {
+        NavigationDecision {
+            direction,
+            random_walk_steps,
+            random_walk_direction: preserve_random_walk.then_some(direction),
+        }
+    }
+
+    /// 在意图方向不可接受时，从候选集中挑一个尽量安全的逃生方向。
+    ///
+    /// 优先选择 `Safe`，其次才接受 `TightSpace`。
+    fn choose_escape_navigation(
+        &self,
+        game: &GameState,
+        directions: impl IntoIterator<Item = Direction>,
+        random_walk_steps: u8,
+        preserve_random_walk: bool,
+    ) -> Option<NavigationDecision> {
+        self.choose_escape_direction(game, directions)
+            .map(|direction| {
+                self.navigation_for_direction(direction, random_walk_steps, preserve_random_walk)
+            })
+    }
+
+    /// 从候选方向中挑选一个可存活的方向。
+    ///
+    /// 如果存在 `Safe` 方向，优先返回；
+    /// 否则回退到第一个 `TightSpace` 方向，避免在绝境中直接放弃可走的路。
+    fn choose_escape_direction(
         &self,
         game: &GameState,
         directions: impl IntoIterator<Item = Direction>,
@@ -202,25 +248,39 @@ impl Snake {
         let mut fallback = None;
 
         for direction in directions {
-            if self.direction().is_opposite(direction) {
-                continue;
-            }
-
-            let next = game.next_position(self.head(), direction);
-            if !game.snake_step_is_safe(self, next) {
-                continue;
-            }
-
-            if game.snake_step_has_adequate_space(self, next) {
-                return Some(direction);
-            }
-
-            if fallback.is_none() {
-                fallback = Some(direction);
+            match self.direction_risk(game, direction) {
+                MoveRisk::Safe => return Some(direction),
+                MoveRisk::TightSpace if fallback.is_none() => fallback = Some(direction),
+                MoveRisk::TightSpace | MoveRisk::Deadly => {}
             }
         }
 
         fallback
+    }
+
+    /// 评估某个方向对当前 AI 的风险等级。
+    fn direction_risk(&self, game: &GameState, direction: Direction) -> MoveRisk {
+        if self.direction().is_opposite(direction) {
+            return MoveRisk::Deadly;
+        }
+
+        let next = game.next_position(self.head(), direction);
+        if !game.snake_step_is_safe(self, next) {
+            return MoveRisk::Deadly;
+        }
+
+        if !game.snake_step_has_adequate_space(self, next) {
+            return MoveRisk::TightSpace;
+        }
+
+        MoveRisk::Safe
+    }
+}
+
+impl MoveRisk {
+    /// 判断这个风险等级是否足以接受为“主意图方向”。
+    fn accept_for_intent(self) -> bool {
+        matches!(self, Self::Safe)
     }
 }
 
