@@ -29,7 +29,7 @@ pub mod game {
     /// 超级食物提供的分数。
     pub const SUPER_FOOD_SCORE_GAIN: u32 = 4;
     /// AI 对非撞墙风险的规避概率，`100` 表示总会躲避，`0` 表示完全不躲。
-    pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 80;
+    pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 100;
 }
 
 /// 渲染布局相关配置。

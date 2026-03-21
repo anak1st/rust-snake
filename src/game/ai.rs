@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use rand::Rng;
+use rand::seq::SliceRandom;
 
 use crate::config::game::AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT;
 
@@ -131,33 +132,28 @@ impl Snake {
 
     /// 为随机漫步选择一个安全的方向。
     ///
-    /// 随机尝试所有方向，从中选择一个安全的方向。
+    /// 随机打乱所有方向后逐个尝试，从中选择一个安全的方向。
     /// 如果没有安全方向，则尝试保持当前方向；
     /// 如果当前方向也不安全，则默认返回向上。
     fn random_walk_direction(&self, game: &GameState) -> Direction {
-        let all = [
+        let mut directions = [
             Direction::Up,
             Direction::Down,
             Direction::Left,
             Direction::Right,
         ];
         let mut rng = rand::rng();
-        let mut safe_directions = Vec::new();
+        directions.shuffle(&mut rng);
 
-        for _ in 0..all.len() {
-            let direction = all[rng.random_range(0..all.len())];
+        for direction in directions {
             if self.direction().is_opposite(direction) {
                 continue;
             }
 
             let next = game.next_position(self.head(), direction);
             if game.snake_step_is_safe(self, next) {
-                safe_directions.push(direction);
+                return direction;
             }
-        }
-
-        if let Some(&direction) = safe_directions.first() {
-            return direction;
         }
 
         let next = game.next_position(self.head(), self.direction());
@@ -234,19 +230,14 @@ impl GameState {
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。
     ///
-    /// 重生时会保留 AI 之前的分数，只重置位置和状态。
+    /// 重生时会重置位置、状态和分数。
     /// 如果无法在角落找到有效位置，会尝试随机位置。
     ///
     /// # 参数
     /// - `enemy_index`: 需要重生的 AI 索引
     pub(super) fn respawn_enemy(&mut self, enemy_index: usize) {
-        let score = self.enemies[enemy_index].score;
-
         if let Some(replacement) = self.try_spawn_enemy_for_slot(enemy_index) {
             self.enemies[enemy_index] = replacement;
-            self.enemies[enemy_index].score = score;
-        } else {
-            self.enemies[enemy_index].score = score;
         }
     }
 

@@ -206,6 +206,17 @@ fn crashing_into_enemy_drops_legacy() {
 }
 
 #[test]
+/// 验证 AI 重生后分数会清零，而不是继承上一条命的得分。
+fn enemy_respawn_resets_score() {
+    let mut game = GameState::with_board_size(16, 8);
+    game.enemies[0].score = 7;
+
+    game.respawn_enemy(0);
+
+    assert_eq!(game.enemies()[0].score(), 0);
+}
+
+#[test]
 /// 验证玩家撞进敌蛇身体时也会死亡，而不是直接穿过。
 fn player_crashes_into_enemy_body() {
     let mut game = GameState::with_board_size(16, 8);
