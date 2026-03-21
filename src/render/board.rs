@@ -1,3 +1,5 @@
+//! 渲染棋盘区域中的格子内容与格子动画。
+
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};

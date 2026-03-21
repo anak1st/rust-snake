@@ -1,5 +1,7 @@
+//! 渲染标题、状态、帮助与遮罩弹窗等面板区域。
+
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
@@ -96,13 +98,7 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: RunState, no_col
 /// 根据游戏状态绘制覆盖层。
 ///
 /// 在 Ready、Paused、GameOver 状态下显示提示弹窗。
-pub(crate) fn draw_state_overlay(
-    frame: &mut Frame,
-    area: Rect,
-    state: RunState,
-    no_color: bool,
-    centered_area: fn(Rect, u16, u16) -> Rect,
-) {
+pub(crate) fn draw_state_overlay(frame: &mut Frame, area: Rect, state: RunState, no_color: bool) {
     match state {
         RunState::Running => {}
         RunState::Ready => draw_message_popup(
@@ -118,7 +114,6 @@ pub(crate) fn draw_state_overlay(
                 "按 q 可随时退出",
             ],
             no_color,
-            centered_area,
         ),
         RunState::Paused => draw_message_popup(
             frame,
@@ -127,7 +122,6 @@ pub(crate) fn draw_state_overlay(
             Color::LightMagenta,
             &["游戏已暂停", "", "按 Space 继续"],
             no_color,
-            centered_area,
         ),
         RunState::GameOver => draw_message_popup(
             frame,
@@ -136,17 +130,12 @@ pub(crate) fn draw_state_overlay(
             Color::Red,
             &["游戏结束", "", "按 r 重新开始"],
             no_color,
-            centered_area,
         ),
     }
 }
 
 /// 绘制终端窗口过小时的提示界面。
-pub(crate) fn draw_too_small(
-    frame: &mut Frame,
-    no_color: bool,
-    centered_area: fn(Rect, u16, u16) -> Rect,
-) {
+pub(crate) fn draw_too_small(frame: &mut Frame, no_color: bool) {
     let area = frame.area();
     let popup_area = centered_area(area, 42, 7);
     let popup = Paragraph::new(vec![
@@ -252,7 +241,6 @@ fn draw_message_popup(
     border_color: Color,
     lines: &[&'static str],
     no_color: bool,
-    centered_area: fn(Rect, u16, u16) -> Rect,
 ) {
     let popup_height = (lines.len() as u16).saturating_add(2);
     let popup_area = centered_area(area, 40, popup_height);
@@ -263,4 +251,30 @@ fn draw_message_popup(
     let popup = Paragraph::new(content).block(styled_block(title, border_color, no_color));
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
+}
+
+/// 在给定区域内计算居中的子区域。
+fn centered_area(area: Rect, width: u16, height: u16) -> Rect {
+    let popup_width = width.min(area.width.saturating_sub(2)).max(1);
+    let popup_height = height.min(area.height.saturating_sub(2)).max(1);
+
+    let vertical: [Rect; 3] = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(popup_height),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+
+    let horizontal: [Rect; 3] = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(popup_width),
+            Constraint::Fill(1),
+        ])
+        .areas(vertical[1]);
+
+    horizontal[1]
 }

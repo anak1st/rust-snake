@@ -1,3 +1,5 @@
+//! 汇总渲染配色与通用样式辅助函数。
+
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders};
 
