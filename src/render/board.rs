@@ -6,11 +6,11 @@ use ratatui::widgets::Paragraph;
 
 use crate::game::{EnemySnake, GameState, Position};
 
-use super::AnimationFrame;
 use super::style::{
     BOMB_COLOR, DEATH_FLASH_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR,
     style_with_color, styled_block,
 };
+use super::{ActiveCellFlash, AnimationFrame, CellFlashKind};
 
 #[derive(Clone, Copy)]
 struct BoardCell {
@@ -111,13 +111,17 @@ fn animate_cell(
     cell: BoardCell,
     animation: &AnimationFrame,
 ) -> BoardCell {
+    if let Some(flash) = active_flash_at(&animation.active_flashes, position) {
+        return flash_cell(flash);
+    }
+
     if !animation.death_flash_visible {
-        return cell;
+        return pulse_super_food_cell(game, position, cell, animation);
     }
 
     let player = game.player();
     if !player.body().contains(&position) {
-        return cell;
+        return pulse_super_food_cell(game, position, cell, animation);
     }
 
     if position == player.head() {
@@ -125,6 +129,37 @@ fn animate_cell(
     }
 
     BoardCell::new(player.body_glyph(), DEATH_FLASH_COLOR, true)
+}
+
+fn pulse_super_food_cell(
+    game: &GameState,
+    position: Position,
+    cell: BoardCell,
+    animation: &AnimationFrame,
+) -> BoardCell {
+    if !game.super_foods().contains(&position) {
+        return cell;
+    }
+
+    if animation.super_food_pulse_on {
+        BoardCell::new("$", Color::White, true)
+    } else {
+        BoardCell::new("$", SUPER_FRUIT_COLOR, true)
+    }
+}
+
+fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<ActiveCellFlash> {
+    flashes
+        .iter()
+        .copied()
+        .find(|flash| flash.position == position && flash.is_visible)
+}
+
+fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
+    match flash.kind {
+        CellFlashKind::Food => BoardCell::new("*", Color::LightGreen, true),
+        CellFlashKind::SuperFood => BoardCell::new("$", Color::White, true),
+    }
 }
 
 fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(&EnemySnake, bool)> {
