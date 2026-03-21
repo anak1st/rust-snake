@@ -28,6 +28,8 @@ pub mod game {
     pub const SUPER_FOOD_GROWTH_AMOUNT: u16 = 4;
     /// 超级食物提供的分数。
     pub const SUPER_FOOD_SCORE_GAIN: u32 = 4;
+    /// 单个尸块每隔多少个逻辑 tick 腐化成食物。
+    pub const CORPSE_DECAY_INTERVAL_TICKS: u64 = 2;
     /// AI 对非撞墙风险的规避概率，`100` 表示总会躲避，`0` 表示完全不躲。
     pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 100;
 }

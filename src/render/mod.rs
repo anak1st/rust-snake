@@ -4,20 +4,16 @@ use std::time::{Duration, Instant};
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Color;
 
 use crate::config::render::{
     FOOTER_HEIGHT, HEADER_HEIGHT, INFO_HEIGHT, MIN_BOARD_HEIGHT, MIN_BOARD_WIDTH,
 };
-use crate::game::{GameEvent, GameState, Position, RunState, SnakeDeathEvent};
+use crate::game::{GameEvent, GameState, Position, RunState};
 
 mod board;
 mod panels;
 mod style;
 
-const DEATH_SEGMENT_STAGGER_MS: u64 = 70;
-const DEATH_SEGMENT_FLASH_DURATION_MS: u64 = 180;
-const DEATH_SEGMENT_FLASH_INTERVAL_MS: u64 = 45;
 const FOOD_FLASH_DURATION_MS: u64 = 220;
 const FOOD_FLASH_INTERVAL_MS: u64 = 55;
 const SUPER_FOOD_PULSE_INTERVAL_MS: u64 = 180;
@@ -29,21 +25,7 @@ pub struct RenderState {
     previous_run_state: RunState,
     previous_foods: Vec<Position>,
     previous_super_foods: Vec<Position>,
-    death_animations: Vec<SnakeDeathAnimation>,
     cell_flashes: Vec<CellFlash>,
-}
-
-struct SnakeDeathAnimation {
-    started_at: Instant,
-    segments: Vec<DeathSegment>,
-}
-
-struct DeathSegment {
-    position: Position,
-    glyph: &'static str,
-    color: Color,
-    bold: bool,
-    start_after: Duration,
 }
 
 struct CellFlash {
@@ -65,16 +47,7 @@ pub(crate) struct ActiveCellFlash {
     pub is_visible: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct ActiveDeathCell {
-    pub position: Position,
-    pub glyph: &'static str,
-    pub color: Color,
-    pub bold: bool,
-}
-
 pub(crate) struct AnimationFrame {
-    pub active_death_cells: Vec<ActiveDeathCell>,
     pub super_food_pulse_on: bool,
     pub active_flashes: Vec<ActiveCellFlash>,
 }
@@ -88,7 +61,6 @@ impl RenderState {
             previous_run_state: RunState::Ready,
             previous_foods: Vec::new(),
             previous_super_foods: Vec::new(),
-            death_animations: Vec::new(),
             cell_flashes: Vec::new(),
         }
     }
@@ -108,12 +80,9 @@ impl RenderState {
             self.last_processed_event_tick = Some(game.tick_count());
         }
 
-        self.death_animations
-            .retain(|animation| !animation.is_finished(now));
         self.cell_flashes.retain(|flash| !flash.is_finished(now));
 
         if matches!(run_state, RunState::Ready) {
-            self.death_animations.clear();
             self.cell_flashes.clear();
         }
 
@@ -124,11 +93,6 @@ impl RenderState {
 
     fn animation_frame(&self, now: Instant) -> AnimationFrame {
         AnimationFrame {
-            active_death_cells: self
-                .death_animations
-                .iter()
-                .flat_map(|animation| animation.active_cells(now))
-                .collect(),
             super_food_pulse_on: pulse_phase(self.pulse_anchor, now),
             active_flashes: self
                 .cell_flashes
@@ -144,12 +108,12 @@ impl RenderState {
 
     fn record_game_events(&mut self, events: &[GameEvent], now: Instant) {
         for event in events {
-            match event {
-                GameEvent::SnakeDied(event) => {
-                    self.death_animations
-                        .push(SnakeDeathAnimation::from_event(event, now));
-                }
-            }
+            let GameEvent::CorpseFoodCreated(position) = *event;
+            self.cell_flashes.push(CellFlash {
+                position,
+                kind: CellFlashKind::Food,
+                started_at: now,
+            });
         }
     }
 
@@ -177,97 +141,6 @@ impl RenderState {
                     started_at: now,
                 });
             }
-        }
-    }
-}
-
-impl SnakeDeathAnimation {
-    fn from_event(event: &SnakeDeathEvent, started_at: Instant) -> Self {
-        let segments = event
-            .segments_head_first()
-            .iter()
-            .enumerate()
-            .map(|(index, &position)| DeathSegment {
-                position,
-                glyph: if index == 0 {
-                    event.head_glyph()
-                } else {
-                    event.body_glyph()
-                },
-                color: if index == 0 {
-                    event.head_color()
-                } else {
-                    event.body_color()
-                },
-                bold: index == 0,
-                start_after: Duration::from_millis(index as u64 * DEATH_SEGMENT_STAGGER_MS),
-            })
-            .collect();
-
-        Self {
-            started_at,
-            segments,
-        }
-    }
-
-    fn elapsed(&self, now: Instant) -> Duration {
-        now.saturating_duration_since(self.started_at)
-    }
-
-    fn is_finished(&self, now: Instant) -> bool {
-        let Some(last_segment) = self.segments.last() else {
-            return true;
-        };
-
-        self.elapsed(now)
-            >= last_segment.start_after + Duration::from_millis(DEATH_SEGMENT_FLASH_DURATION_MS)
-    }
-
-    fn active_cells(&self, now: Instant) -> Vec<ActiveDeathCell> {
-        let elapsed = self.elapsed(now);
-        let mut cells = Vec::with_capacity(self.segments.len());
-
-        for segment in &self.segments {
-            if elapsed < segment.start_after {
-                cells.push(segment.original_cell());
-                continue;
-            }
-
-            let phase_elapsed = elapsed.saturating_sub(segment.start_after);
-            let flash_duration = Duration::from_millis(DEATH_SEGMENT_FLASH_DURATION_MS);
-            if phase_elapsed >= flash_duration {
-                continue;
-            }
-
-            let interval = Duration::from_millis(DEATH_SEGMENT_FLASH_INTERVAL_MS).as_millis();
-            let step = phase_elapsed.as_millis() / interval.max(1);
-            if step.is_multiple_of(2) {
-                cells.push(segment.original_cell());
-            } else {
-                cells.push(segment.food_cell());
-            }
-        }
-
-        cells
-    }
-}
-
-impl DeathSegment {
-    fn original_cell(&self) -> ActiveDeathCell {
-        ActiveDeathCell {
-            position: self.position,
-            glyph: self.glyph,
-            color: self.color,
-            bold: self.bold,
-        }
-    }
-
-    fn food_cell(&self) -> ActiveDeathCell {
-        ActiveDeathCell {
-            position: self.position,
-            glyph: "*",
-            color: Color::LightGreen,
-            bold: true,
         }
     }
 }
@@ -384,40 +257,37 @@ mod tests {
     use std::time::Duration;
 
     use super::RenderState;
-    use crate::game::{GameState, Position, RunState};
+    use crate::game::{GameEvent, GameState, Position, RunState};
 
     #[test]
-    /// 验证进入 GameOver 后会触发局部死亡动画，并在重新开始后清除。
-    fn death_animation_starts_and_clears_with_state_changes() {
+    /// 验证尸块转成食物时会触发短时闪光，并在重开后清除。
+    fn corpse_food_event_creates_flash_and_clears_on_restart() {
         let mut render_state = RenderState::new();
         let now = std::time::Instant::now();
+        let flash_position = Position { x: 4, y: 4 };
 
         let mut game = GameState::with_board_size(4, 4);
         render_state.sync(&game, now);
+        assert!(render_state.animation_frame(now).active_flashes.is_empty());
+
+        render_state.record_game_events(&[GameEvent::CorpseFoodCreated(flash_position)], now);
         assert!(
             render_state
                 .animation_frame(now)
-                .active_death_cells
-                .is_empty()
+                .active_flashes
+                .iter()
+                .any(|flash| flash.position == flash_position
+                    && flash.kind == super::CellFlashKind::Food)
         );
 
-        game.start();
-        game.tick();
-        game.tick();
         render_state.sync(&game, now);
-        assert!(
-            !render_state
-                .animation_frame(now)
-                .active_death_cells
-                .is_empty()
-        );
 
         game.restart();
         render_state.sync(&game, now + Duration::from_millis(10));
         assert!(
             render_state
                 .animation_frame(now + Duration::from_millis(10))
-                .active_death_cells
+                .active_flashes
                 .is_empty()
         );
     }

@@ -103,6 +103,11 @@ impl Snake {
         self.direction
     }
 
+    /// 返回当前是否仍在棋盘上存活。
+    pub fn is_alive(&self) -> bool {
+        !self.body.is_empty()
+    }
+
     /// 返回蛇身坐标。
     pub fn body(&self) -> &VecDeque<Position> {
         &self.body
@@ -196,6 +201,17 @@ impl Snake {
     /// 计算这条蛇在本次移动结算后会表现出的体型长度。
     pub(super) fn projected_length(&self, growth_amount: u16) -> usize {
         self.body.len() + usize::from(self.grows(growth_amount))
+    }
+
+    /// 将蛇从棋盘上移除，但保留控制方式和方向。
+    pub(super) fn remove_from_board(&mut self) {
+        self.body.clear();
+        self.pending_growth = 0;
+    }
+
+    /// 将当前得分清零。
+    pub(super) fn reset_score(&mut self) {
+        self.score = 0;
     }
 
     /// 推进蛇身，并根据成长值决定是否保留尾巴。

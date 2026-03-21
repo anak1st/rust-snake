@@ -10,6 +10,11 @@ use super::{Direction, GameState, Position, RunState, SnakeControl};
 /// 验证每次 tick 都会让玩家蛇头向前推进一格。
 fn snake_moves_forward_on_tick() {
     let mut game = GameState::with_board_size(18, 8);
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.clear();
     game.start();
     let old_head = game.player().body().back().copied().unwrap();
 
@@ -168,10 +173,11 @@ fn super_fruit_grants_extra_growth() {
 }
 
 #[test]
-/// 验证蛇死亡后，其身体会化成普通食物留在棋盘上。
-fn crashing_into_enemy_drops_legacy() {
+/// 验证蛇死亡后会被拆成多个独立尸块，而不是立刻化成食物。
+fn crashing_into_enemy_creates_corpse_pieces() {
     let mut game = GameState::with_board_size(16, 8);
     game.foods.clear();
+    game.legacy_foods.clear();
     game.super_foods.clear();
     game.bombs.clear();
     game.player.body = VecDeque::from([
@@ -197,12 +203,26 @@ fn crashing_into_enemy_drops_legacy() {
     game.tick();
 
     assert_eq!(game.run_state(), RunState::GameOver);
-    assert_eq!(game.player().body().len(), 3);
+    assert!(!game.player().is_alive());
     assert_eq!(game.enemies()[0].score(), 0);
     assert_eq!(game.foods().len(), FOOD_COUNT);
-    assert!(game.legacy_foods().contains(&Position { x: 1, y: 4 }));
-    assert!(game.legacy_foods().contains(&Position { x: 2, y: 4 }));
-    assert!(game.legacy_foods().contains(&Position { x: 3, y: 4 }));
+    assert!(game.legacy_foods().is_empty());
+    assert_eq!(game.corpse_pieces().len(), 3);
+    assert!(
+        game.corpse_pieces()
+            .iter()
+            .any(|piece| piece.position() == Position { x: 1, y: 4 })
+    );
+    assert!(
+        game.corpse_pieces()
+            .iter()
+            .any(|piece| piece.position() == Position { x: 2, y: 4 })
+    );
+    assert!(
+        game.corpse_pieces()
+            .iter()
+            .any(|piece| piece.position() == Position { x: 3, y: 4 })
+    );
 }
 
 #[test]
@@ -211,7 +231,7 @@ fn enemy_respawn_resets_score() {
     let mut game = GameState::with_board_size(16, 8);
     game.enemies[0].score = 7;
 
-    game.respawn_enemy(0);
+    assert!(game.respawn_enemy(0));
 
     assert_eq!(game.enemies()[0].score(), 0);
 }
@@ -221,6 +241,7 @@ fn enemy_respawn_resets_score() {
 fn player_crashes_into_enemy_body() {
     let mut game = GameState::with_board_size(16, 8);
     game.foods.clear();
+    game.legacy_foods.clear();
     game.super_foods.clear();
     game.bombs.clear();
     game.player.body = VecDeque::from([
@@ -246,9 +267,8 @@ fn player_crashes_into_enemy_body() {
     game.tick();
 
     assert_eq!(game.run_state(), RunState::GameOver);
-    assert!(game.legacy_foods().contains(&Position { x: 3, y: 4 }));
-    assert!(game.legacy_foods().contains(&Position { x: 4, y: 4 }));
-    assert!(game.legacy_foods().contains(&Position { x: 5, y: 4 }));
+    assert_eq!(game.corpse_pieces().len(), 3);
+    assert!(game.legacy_foods().is_empty());
 }
 
 #[test]
@@ -256,6 +276,7 @@ fn player_crashes_into_enemy_body() {
 fn legacy_food_does_not_reduce_normal_food_refill() {
     let mut game = GameState::with_board_size(16, 8);
     game.foods.clear();
+    game.legacy_foods.clear();
     game.super_foods.clear();
     game.bombs.clear();
     game.enemies.clear();
@@ -275,14 +296,134 @@ fn legacy_food_does_not_reduce_normal_food_refill() {
 
     assert_eq!(game.run_state(), RunState::GameOver);
     assert_eq!(game.foods().len(), FOOD_COUNT);
-    assert_eq!(game.legacy_foods().len(), 3);
+    assert!(game.legacy_foods().is_empty());
+    assert_eq!(game.corpse_pieces().len(), 3);
+}
+
+#[test]
+/// 验证敌蛇死亡后会被拆成多个尸块，并按时间逐个变成食物，最后才重生。
+fn enemy_corpse_pieces_gradually_turn_into_food_before_respawn() {
+    let mut game = GameState::with_board_size(16, 8);
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.truncate(1);
+    game.player.body = VecDeque::from([
+        Position { x: 12, y: 1 },
+        Position { x: 11, y: 1 },
+        Position { x: 10, y: 1 },
+    ]);
+    game.player.direction = Direction::Left;
+    game.player.control = super::SnakeControl::Manual {
+        pending_direction: Direction::Left,
+    };
+    game.begin_enemy_corpse(
+        0,
+        &VecDeque::from([
+            Position { x: 3, y: 4 },
+            Position { x: 4, y: 4 },
+            Position { x: 5, y: 4 },
+        ]),
+        super::SnakeAppearance::for_slot(0),
+    );
+    game.enemies[0].remove_from_board();
+    game.enemies[0].score = 7;
+    game.enemies[0].reset_score();
+    game.start();
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 3);
+    assert!(game.legacy_foods().is_empty());
+    assert!(!game.enemies()[0].is_alive());
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 3);
+    assert!(game.legacy_foods().is_empty());
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 2);
+    assert!(game.legacy_foods().contains(&Position { x: 5, y: 4 }));
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 2);
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 1);
+    assert!(game.legacy_foods().contains(&Position { x: 4, y: 4 }));
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert_eq!(game.corpse_pieces().len(), 1);
+
+    game.foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.tick();
+    assert!(game.legacy_foods().contains(&Position { x: 3, y: 4 }));
+    assert!(game.corpse_pieces().is_empty());
+    assert!(game.enemies()[0].is_alive());
+    assert_eq!(game.enemies()[0].score(), 0);
+}
+
+#[test]
+/// 验证尚未腐化的尸块仍然会阻挡玩家，撞上去会死亡。
+fn player_dies_when_hitting_unconverted_corpse_piece() {
+    let mut game = GameState::with_board_size(16, 8);
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.clear();
+    game.player.body = VecDeque::from([
+        Position { x: 1, y: 4 },
+        Position { x: 2, y: 4 },
+        Position { x: 3, y: 4 },
+    ]);
+    game.player.direction = Direction::Right;
+    game.player.control = super::SnakeControl::Manual {
+        pending_direction: Direction::Right,
+    };
+    game.begin_enemy_corpse(
+        0,
+        &VecDeque::from([
+            Position { x: 6, y: 4 },
+            Position { x: 5, y: 4 },
+            Position { x: 4, y: 4 },
+        ]),
+        super::SnakeAppearance::for_slot(0),
+    );
+    game.start();
+
+    game.tick();
+
+    assert_eq!(game.run_state(), RunState::GameOver);
+    assert_eq!(game.corpse_pieces().len(), 6);
+    assert!(game.legacy_foods().is_empty());
 }
 
 #[test]
 /// 验证头撞头时体型较小的一方死亡。
 fn smaller_snake_loses_head_on() {
     let game = GameState::with_board_size(16, 8);
-    let enemy_plans = vec![super::SnakePlan {
+    let enemy_plans = vec![Some(super::SnakePlan {
         next_head: Position { x: 6, y: 4 },
         consumable: None,
         growth_amount: 0,
@@ -294,7 +435,7 @@ fn smaller_snake_loses_head_on() {
             random_walk_direction: None,
         },
         crashes: false,
-    }];
+    })];
     let mut player_dies = false;
     let mut enemy_dies = vec![false];
 

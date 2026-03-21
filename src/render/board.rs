@@ -10,7 +10,7 @@ use super::style::{
     BOMB_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR, style_with_color,
     styled_block,
 };
-use super::{ActiveCellFlash, ActiveDeathCell, AnimationFrame, CellFlashKind};
+use super::{ActiveCellFlash, AnimationFrame, CellFlashKind};
 
 #[derive(Clone, Copy)]
 struct BoardCell {
@@ -74,8 +74,24 @@ fn render_live_board(
 fn board_cell_for_position(game: &GameState, position: Position) -> BoardCell {
     let player = game.player();
 
-    if position == player.head() {
+    if player.is_alive() && position == player.head() {
         return BoardCell::new(player.head_glyph(), player.head_color(), true);
+    }
+
+    if player.is_alive() && player.body().contains(&position) {
+        return BoardCell::new(player.body_glyph(), player.body_color(), false);
+    }
+
+    if let Some((enemy, is_head)) = enemy_cell(game.enemies(), position) {
+        return if is_head {
+            BoardCell::new(enemy.head_glyph(), enemy.head_color(), true)
+        } else {
+            BoardCell::new(enemy.body_glyph(), enemy.body_color(), false)
+        };
+    }
+
+    if let Some(cell) = game.corpse_cell(position) {
+        return BoardCell::new(cell.glyph(), cell.color(), cell.bold());
     }
 
     if game.foods().contains(&position) || game.legacy_foods().contains(&position) {
@@ -90,18 +106,6 @@ fn board_cell_for_position(game: &GameState, position: Position) -> BoardCell {
         return BoardCell::new("X", BOMB_COLOR, true);
     }
 
-    if player.body().contains(&position) {
-        return BoardCell::new(player.body_glyph(), player.body_color(), false);
-    }
-
-    if let Some((enemy, is_head)) = enemy_cell(game.enemies(), position) {
-        return if is_head {
-            BoardCell::new(enemy.head_glyph(), enemy.head_color(), true)
-        } else {
-            BoardCell::new(enemy.body_glyph(), enemy.body_color(), false)
-        };
-    }
-
     BoardCell::new("·", MUTED_COLOR, false)
 }
 
@@ -111,10 +115,6 @@ fn animate_cell(
     cell: BoardCell,
     animation: &AnimationFrame,
 ) -> BoardCell {
-    if let Some(death_cell) = active_death_cell_at(&animation.active_death_cells, position) {
-        return BoardCell::new(death_cell.glyph, death_cell.color, death_cell.bold);
-    }
-
     if let Some(flash) = active_flash_at(&animation.active_flashes, position) {
         return flash_cell(flash);
     }
@@ -146,10 +146,6 @@ fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<Ac
         .find(|flash| flash.position == position && flash.is_visible)
 }
 
-fn active_death_cell_at(cells: &[ActiveDeathCell], position: Position) -> Option<ActiveDeathCell> {
-    cells.iter().copied().find(|cell| cell.position == position)
-}
-
 fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
     match flash.kind {
         CellFlashKind::Food => BoardCell::new("*", Color::LightGreen, true),
@@ -159,7 +155,9 @@ fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
 
 fn enemy_cell(enemies: &[Snake], position: Position) -> Option<(&Snake, bool)> {
     enemies.iter().find_map(|enemy| {
-        if Some(position) == enemy.body().back().copied() {
+        if !enemy.is_alive() {
+            None
+        } else if Some(position) == enemy.body().back().copied() {
             Some((enemy, true))
         } else if enemy.body().contains(&position) {
             Some((enemy, false))

@@ -205,7 +205,13 @@ impl GameState {
             return false;
         }
 
-        if self.occupies_with_tail_rules(snake.body(), next, false) {
+        if !snake.is_alive() {
+            return false;
+        }
+
+        if self.occupies_with_tail_rules(snake.body(), next, false)
+            || self.corpse_piece_occupies_position(next)
+        {
             return false;
         }
 
@@ -217,13 +223,16 @@ impl GameState {
 
     /// 判断除当前蛇自身外，是否还有其他蛇占据指定位置。
     fn other_snakes_occupy_position(&self, snake: &Snake, position: Position) -> bool {
-        (!std::ptr::eq(&self.player, snake) && self.player_occupies_position(position, 0))
+        (self.player.is_alive()
+            && !std::ptr::eq(&self.player, snake)
+            && self.player_occupies_position(position, 0))
             || self
                 .enemies
                 .iter()
                 .enumerate()
                 .any(|(enemy_index, other_enemy)| {
-                    !std::ptr::eq(other_enemy, snake)
+                    other_enemy.is_alive()
+                        && !std::ptr::eq(other_enemy, snake)
                         && self.enemy_occupies_position(enemy_index, position, &[])
                 })
     }
@@ -235,10 +244,13 @@ impl GameState {
     ///
     /// # 参数
     /// - `enemy_index`: 需要重生的 AI 索引
-    pub(super) fn respawn_enemy(&mut self, enemy_index: usize) {
+    pub(super) fn respawn_enemy(&mut self, enemy_index: usize) -> bool {
         if let Some(replacement) = self.try_spawn_enemy_for_slot(enemy_index) {
             self.enemies[enemy_index] = replacement;
+            return true;
         }
+
+        false
     }
 
     /// 尝试在指定 slot 对应的角落生成一条 AI 蛇。
@@ -398,10 +410,20 @@ impl GameState {
             return false;
         }
 
+        // 不与尸块重叠
+        if self
+            .corpse_pieces
+            .iter()
+            .any(|piece| body.contains(&piece.position()))
+        {
+            return false;
+        }
+
         // 不与其他 AI 蛇身重叠
         !self
             .enemies
             .iter()
+            .filter(|enemy| enemy.is_alive())
             .any(|enemy| enemy.body().iter().any(|segment| body.contains(segment)))
     }
 

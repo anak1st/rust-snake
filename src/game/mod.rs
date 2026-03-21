@@ -1,14 +1,14 @@
-use ratatui::style::Color;
-
 use crate::config::game::{AI_SNAKE_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WIDTH};
 
 mod ai;
+mod corpse;
 mod logic;
 mod snake;
 mod spawn;
 #[cfg(test)]
 mod tests;
 
+pub use corpse::{CorpseCell, CorpsePiece};
 pub use snake::{Snake, SnakeAppearance, SnakeControl};
 
 /// 表示游戏当前所处的运行阶段。
@@ -107,45 +107,14 @@ impl SnakePlan {
 /// 游戏在最近一个逻辑 tick 中产生的事件。
 #[derive(Debug, Clone)]
 pub enum GameEvent {
-    /// 一条蛇死亡，并留下了待渲染的尸体轨迹。
-    SnakeDied(SnakeDeathEvent),
+    /// 一个尸块腐化完成，并在原地转成了尸体食物。
+    CorpseFoodCreated(Position),
 }
 
-/// 描述一条蛇死亡时的身体轨迹与原始外观。
-#[derive(Debug, Clone)]
-pub struct SnakeDeathEvent {
-    segments_head_first: Vec<Position>,
-    head_glyph: &'static str,
-    body_glyph: &'static str,
-    head_color: Color,
-    body_color: Color,
-}
-
-impl SnakeDeathEvent {
-    /// 返回按“蛇头到蛇尾”顺序排列的身体坐标。
-    pub fn segments_head_first(&self) -> &[Position] {
-        &self.segments_head_first
-    }
-
-    /// 返回蛇头显示符号。
-    pub fn head_glyph(&self) -> &'static str {
-        self.head_glyph
-    }
-
-    /// 返回蛇身显示符号。
-    pub fn body_glyph(&self) -> &'static str {
-        self.body_glyph
-    }
-
-    /// 返回蛇头颜色。
-    pub fn head_color(&self) -> Color {
-        self.head_color
-    }
-
-    /// 返回蛇身颜色。
-    pub fn body_color(&self) -> Color {
-        self.body_color
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingEnemyRespawn {
+    group_id: u64,
+    enemy_index: usize,
 }
 
 /// 封装一局贪吃蛇的完整状态。
@@ -162,6 +131,12 @@ pub struct GameState {
     player: Snake,
     /// 所有 AI 敌蛇。
     enemies: Vec<Snake>,
+    /// 所有尚未腐化完成的尸块。
+    corpse_pieces: Vec<CorpsePiece>,
+    /// 下一批尸块使用的分组编号。
+    next_corpse_group_id: u64,
+    /// 已死亡、等待对应尸块全部腐化后重生的敌蛇。
+    pending_enemy_respawns: Vec<PendingEnemyRespawn>,
     /// 当前棋盘上的所有食物位置。
     foods: Vec<Position>,
     /// 蛇死亡后留下的尸体食物位置。
@@ -198,6 +173,9 @@ impl GameState {
             state: RunState::Ready,
             player,
             enemies: Vec::with_capacity(AI_SNAKE_COUNT),
+            corpse_pieces: Vec::new(),
+            next_corpse_group_id: 0,
+            pending_enemy_respawns: Vec::new(),
             foods: Vec::new(),
             legacy_foods: Vec::new(),
             super_foods: Vec::new(),
@@ -303,6 +281,11 @@ impl GameState {
         &self.player
     }
 
+    /// 返回当前仍未腐化完成的所有尸块。
+    pub fn corpse_pieces(&self) -> &[CorpsePiece] {
+        &self.corpse_pieces
+    }
+
     /// 返回当前所有食物位置。
     pub fn foods(&self) -> &[Position] {
         &self.foods
@@ -326,6 +309,14 @@ impl GameState {
     /// 返回最近一个逻辑 tick 产生的事件列表。
     pub fn recent_events(&self) -> &[GameEvent] {
         &self.recent_events
+    }
+
+    /// 返回指定位置上的尸块渲染信息。
+    pub fn corpse_cell(&self, position: Position) -> Option<CorpseCell> {
+        self.corpse_pieces
+            .iter()
+            .find(|piece| piece.position() == position)
+            .map(|piece| piece.cell())
     }
 
     /// 返回玩家蛇头位置。
