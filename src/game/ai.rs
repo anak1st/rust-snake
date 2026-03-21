@@ -28,9 +28,25 @@ impl GameState {
     }
 
     /// 为 AI 敌蛇选择下一步的移动方向。
+    ///
+    /// AI 决策采用分层优先级策略，按以下顺序尝试：
+    ///
+    /// 1. **继续随机漫步**：如果当前正在随机漫步且下一步安全，继续沿当前方向走
+    /// 2. **触发随机漫步**：15% 概率进入随机漫步模式，持续 5-14 步
+    /// 3. **追逐食物**：计算最近的食物位置，选择能接近食物的安全方向
+    /// 4. **保持方向**：如果当前方向安全，继续前进
+    /// 5. **紧急逃生**：从剩余安全方向中任选一个
+    /// 6. **无路可走**：保持当前方向（将导致死亡）
+    ///
+    /// # 参数
+    /// - `enemy_index`: AI 蛇在 `enemies` 数组中的索引
+    ///
+    /// # 返回值
+    /// 返回包含方向、随机漫步步数和方向的导航决策
     fn choose_enemy_direction(&self, enemy_index: usize) -> NavigationDecision {
         let enemy = &self.enemies[enemy_index];
 
+        // 如果正在随机漫步，尝试继续沿当前方向走
         if enemy.random_walk_steps > 0 {
             if let Some(walk_dir) = enemy.random_walk_direction {
                 let next = self.next_position(enemy.head(), walk_dir);
@@ -42,7 +58,7 @@ impl GameState {
                     };
                 }
             }
-
+            // 当前方向不安全，重新选择一个安全的随机方向
             let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
             return NavigationDecision {
                 direction: walk_dir,
@@ -51,6 +67,7 @@ impl GameState {
             };
         }
 
+        // 15% 概率触发随机漫步模式
         let mut rng = rand::rng();
         if rng.random_range(0..100) < 15 {
             let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
@@ -62,10 +79,12 @@ impl GameState {
             };
         }
 
+        // 追逐最近的食物
         let target = self.closest_consumable_to(enemy.head());
         let preferred = self.preferred_directions(enemy.head(), target);
 
         for direction in preferred {
+            // 跳过反向（不能 180 度掉头）
             if Self::is_opposite(enemy.direction(), direction) {
                 continue;
             }
@@ -80,6 +99,7 @@ impl GameState {
             }
         }
 
+        // 保持当前方向（如果安全）
         let next = self.next_position(enemy.head(), enemy.direction());
         if self.enemy_step_is_safe(enemy_index, next) {
             return NavigationDecision {
@@ -89,6 +109,7 @@ impl GameState {
             };
         }
 
+        // 紧急逃生，从剩余安全方向中任选一个
         let safe_dirs = [
             Direction::Up,
             Direction::Down,
@@ -109,6 +130,7 @@ impl GameState {
             };
         }
 
+        // 无路可走，保持当前方向（将导致死亡）
         NavigationDecision {
             direction: enemy.direction(),
             random_walk_steps: 0,
@@ -205,6 +227,23 @@ impl GameState {
     }
 
     /// 返回指定 slot 在角落处的候选出生形态。
+    ///
+    /// AI 蛇优先在棋盘四角出生，每条蛇对应一个角落（slot % 4）。
+    /// 对于每个角落，会生成两种候选形态：
+    /// - 垂直放置（如果高度 >= 3）
+    /// - 水平放置（如果宽度 >= 3）
+    ///
+    /// 角落分配规则：
+    /// - slot 0, 4, 8... → 左上角 (0, 0)
+    /// - slot 1, 5, 9... → 右上角 (width-1, 0)
+    /// - slot 2, 6, 10... → 左下角 (0, height-1)
+    /// - slot 3, 7, 11... → 右下角 (width-1, height-1)
+    ///
+    /// # 参数
+    /// - `slot`: AI 蛇的槽位编号
+    ///
+    /// # 返回值
+    /// 返回候选形态列表，每个元素包含（蛇身坐标，初始方向）
     fn corner_spawn_candidates(&self, slot: usize) -> Vec<(VecDeque<Position>, Direction)> {
         let corner_index = slot % 4;
         let mut candidates = Vec::with_capacity(2);
@@ -275,7 +314,15 @@ impl GameState {
     }
 
     /// 检查生成的 AI 蛇身位置是否有效。
+    ///
+    /// 有效位置需要满足以下条件：
+    /// - 不与玩家蛇身重叠
+    /// - 不与普通食物重叠
+    /// - 不与尸体食物重叠
+    /// - 不与超级食物或炸弹重叠
+    /// - 不与其他 AI 蛇身重叠
     fn enemy_spawn_is_valid(&self, body: &VecDeque<Position>) -> bool {
+        // 不与玩家蛇身重叠
         if self
             .player
             .body()
@@ -285,20 +332,24 @@ impl GameState {
             return false;
         }
 
+        // 不与普通食物重叠
         if self.foods.iter().any(|food| body.contains(food)) {
             return false;
         }
 
+        // 不与尸体食物重叠
         if self.legacy_foods.iter().any(|food| body.contains(food)) {
             return false;
         }
 
+        // 不与超级食物或炸弹重叠
         if self.super_foods.iter().any(|fruit| body.contains(fruit))
             || self.bombs.iter().any(|bomb| body.contains(bomb))
         {
             return false;
         }
 
+        // 不与其他 AI 蛇身重叠
         !self
             .enemies
             .iter()

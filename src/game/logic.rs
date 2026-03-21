@@ -13,21 +13,36 @@ use super::{
 
 impl GameState {
     /// 推进一帧游戏逻辑，处理玩家、AI、食物和碰撞。
+    ///
+    /// tick 是核心逻辑推进函数，处理流程分为以下几个阶段：
+    ///
+    /// 1. **方向同步**：将 pending_direction 同步为实际生效的 direction
+    /// 2. **玩家移动计算**：计算玩家下一步位置和格子效果
+    /// 3. **AI 移动规划**：为每条 AI 预规划下一步移动
+    /// 4. **碰撞检测**：判断玩家和 AI 是否会撞死
+    /// 5. **头撞头结算**：处理玩家与 AI、AI 与 AI 的头碰头情况
+    /// 6. **状态更新**：推进存活的蛇，重生死亡的 AI
+    /// 7. **收尾工作**：补充物品、递增 tick 计数
     pub fn tick(&mut self) {
+        // 检查游戏是否正在运行
         if self.state != RunState::Running {
             return;
         }
 
+        // 方向同步
         self.player.snake.direction = self.player.pending_direction();
 
+        // 玩家移动计算
         let player_next = self.next_position(self.player_head(), self.player.direction());
         let player_effect = self.tile_effect(player_next);
 
+        // AI 移动规划（所有 AI 的规划在碰撞判断之前完成，确保公平性）
         let mut enemy_plans = Vec::with_capacity(self.enemies.len());
         for enemy_index in 0..self.enemies.len() {
             enemy_plans.push(self.plan_enemy_move(enemy_index));
         }
 
+        // 碰撞检测
         let player_grows = self.snake_grows(&self.player.snake, player_effect.growth_amount);
         let mut player_dies = self.player_hits_hazard_or_self(player_next, player_effect)
             || self.player_hits_enemy_body(player_next, &enemy_plans);
@@ -44,6 +59,7 @@ impl GameState {
             })
             .collect::<Vec<_>>();
 
+        // 阶段 5：头撞头结算
         self.resolve_player_enemy_head_on(
             player_next,
             player_effect,
@@ -53,10 +69,12 @@ impl GameState {
         );
         self.resolve_enemy_head_on(&enemy_plans, &mut enemy_dies);
 
+        // 将死亡标记写入计划
         for (plan, dies) in enemy_plans.iter_mut().zip(enemy_dies.iter().copied()) {
             plan.crashes = dies;
         }
 
+        // 阶段 6：保存碰撞前的蛇身（用于生成尸体食物）
         let player_body_before_crash = self.player.body().clone();
         let enemy_bodies_before_crash = self
             .enemies
@@ -64,10 +82,12 @@ impl GameState {
             .map(|enemy| enemy.body().clone())
             .collect::<Vec<_>>();
 
+        // 阶段 6：推进存活的玩家
         if !player_dies {
             self.advance_player(player_next, player_effect);
         }
 
+        // 阶段 6：推进或重生 AI
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
                 self.drop_legacy_from_body(&enemy_bodies_before_crash[enemy_index]);
@@ -77,11 +97,13 @@ impl GameState {
             }
         }
 
+        // 阶段 6：处理玩家死亡
         if player_dies {
             self.drop_legacy_from_body(&player_body_before_crash);
             self.state = RunState::GameOver;
         }
 
+        // 阶段 7：收尾工作
         self.refill_items();
         self.tick_count += 1;
     }
@@ -176,6 +198,18 @@ impl GameState {
     }
 
     /// 结算玩家与 AI 的头撞头规则：体型较小的一方死亡，同体型同死。
+    ///
+    /// # 参数
+    /// - `player_next`: 玩家下一步位置
+    /// - `player_effect`: 玩家下一步的格子效果
+    /// - `enemy_plans`: 所有 AI 的移动计划
+    /// - `player_dies`: 玩家是否死亡的输出参数
+    /// - `enemy_dies`: AI 是否死亡的输出数组
+    ///
+    /// # 结算规则
+    /// - 玩家体型 > AI 体型：AI 死亡
+    /// - 玩家体型 < AI 体型：玩家死亡
+    /// - 玩家体型 = AI 体型：双方同死
     pub(super) fn resolve_player_enemy_head_on(
         &self,
         player_next: Position,
@@ -184,20 +218,29 @@ impl GameState {
         player_dies: &mut bool,
         enemy_dies: &mut [bool],
     ) {
+        // 计算玩家在本次移动后的体型（包含即将增长的部分）
         let player_length = self.projected_length(&self.player.snake, player_effect.growth_amount);
 
+        // 遍历所有 AI，检查是否有头撞头
         for (enemy_index, plan) in enemy_plans.iter().enumerate() {
+            // 跳过不与玩家头撞头的 AI
             if plan.next_head != player_next {
                 continue;
             }
 
+            // 计算该 AI 在本次移动后的体型
             let enemy_length =
                 self.projected_length(&self.enemies[enemy_index].snake, plan.growth_amount);
+
+            // 根据体型比较决定生死
             if player_length > enemy_length {
+                // 玩家体型更大，AI 死亡
                 enemy_dies[enemy_index] = true;
             } else if player_length < enemy_length {
+                // AI 体型更大，玩家死亡
                 *player_dies = true;
             } else {
+                // 体型相同，双方同死
                 *player_dies = true;
                 enemy_dies[enemy_index] = true;
             }
@@ -205,13 +248,20 @@ impl GameState {
     }
 
     /// 结算所有 AI 之间的头撞头规则：体型较小的一方死亡，同体型同死。
+    ///
+    /// 使用双重循环检查所有 AI 对，避免重复比较。
+    /// 只比较 `enemy_index < other_index` 的对，确保每对只处理一次。
     fn resolve_enemy_head_on(&self, enemy_plans: &[EnemyPlan], enemy_dies: &mut [bool]) {
+        // 外层循环：遍历每条 AI
         for enemy_index in 0..enemy_plans.len() {
+            // 内层循环：只与索引更大的 AI 比较，避免重复
             for other_index in (enemy_index + 1)..enemy_plans.len() {
+                // 跳过不发生头撞头的 AI 对
                 if enemy_plans[enemy_index].next_head != enemy_plans[other_index].next_head {
                     continue;
                 }
 
+                // 计算两条 AI 的体型
                 let enemy_length = self.projected_length(
                     &self.enemies[enemy_index].snake,
                     enemy_plans[enemy_index].growth_amount,
@@ -221,11 +271,15 @@ impl GameState {
                     enemy_plans[other_index].growth_amount,
                 );
 
+                // 根据体型比较决定生死
                 if enemy_length > other_length {
+                    // 第一条 AI 体型更大，第二条死亡
                     enemy_dies[other_index] = true;
                 } else if enemy_length < other_length {
+                    // 第二条 AI 体型更大，第一条死亡
                     enemy_dies[enemy_index] = true;
                 } else {
+                    // 体型相同，双方同死
                     enemy_dies[enemy_index] = true;
                     enemy_dies[other_index] = true;
                 }
@@ -382,6 +436,17 @@ impl GameState {
     }
 
     /// 推进一条蛇，并根据成长值决定是否保留尾巴。
+    ///
+    /// 蛇身增长的实现采用"延迟增长"机制：
+    /// - 吃到食物时，`pending_growth` 记录待增长的节数
+    /// - 每次移动时，如果 `pending_growth > 0`，则不移除尾巴，并递减计数
+    /// - 这样蛇会逐渐变长，而不是一次性增长
+    ///
+    /// # 参数
+    /// - `snake`: 要推进的蛇（可变引用）
+    /// - `next_head`: 新蛇头的位置
+    /// - `growth_amount`: 本次移动带来的额外增长节数（如吃到食物）
+    /// - `score_gain`: 本次移动带来的分数增益
     fn advance_snake(snake: &mut Snake, next_head: Position, growth_amount: u16, score_gain: u32) {
         snake.body.push_back(next_head);
         snake.score += score_gain;
@@ -449,6 +514,23 @@ impl GameState {
     }
 
     /// 随机生成一个不与任意蛇身或食物重叠的位置。
+    ///
+    /// 使用拒绝采样算法：随机生成候选位置，直到找到一个空位。
+    /// 该方法在棋盘空间充足时效率较高，但当棋盘接近满载时可能需要多次尝试。
+    ///
+    /// 排除的位置包括：
+    /// - 玩家蛇身
+    /// - 所有 AI 蛇身
+    /// - 普通食物
+    /// - 尸体食物（legacy_foods）
+    /// - 超级食物
+    /// - 炸弹
+    ///
+    /// # 返回值
+    /// 返回一个空位置的坐标
+    ///
+    /// # 注意
+    /// 调用前应确保 `empty_cell_count() > 0`，否则会陷入无限循环
     fn random_empty_position(&self) -> Position {
         let mut rng = rand::rng();
 
