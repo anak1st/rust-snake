@@ -30,6 +30,12 @@ pub mod game {
     pub const SUPER_FOOD_SCORE_GAIN: u32 = 4;
     /// 单个尸块每隔多少个逻辑 tick 腐化成食物。
     pub const CORPSE_DECAY_INTERVAL_TICKS: u64 = 2;
+    /// AI 触发随机漫游的概率，`5` 表示每次决策有 5% 概率进入随机漫游。
+    pub const AI_RANDOM_WALK_CHANCE_PERCENT: u8 = 5;
+    /// AI 随机漫游持续的最少步数。
+    pub const AI_RANDOM_WALK_MIN_STEPS: u8 = 5;
+    /// AI 随机漫游持续的最多步数。
+    pub const AI_RANDOM_WALK_MAX_STEPS: u8 = 10;
     /// AI 对非撞墙风险的规避概率，`100` 表示总会躲避，`0` 表示完全不躲。
     pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 100;
 }

@@ -3,7 +3,10 @@ use std::collections::VecDeque;
 use rand::Rng;
 use rand::seq::SliceRandom;
 
-use crate::config::game::AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT;
+use crate::config::game::{
+    AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT, AI_RANDOM_WALK_CHANCE_PERCENT, AI_RANDOM_WALK_MAX_STEPS,
+    AI_RANDOM_WALK_MIN_STEPS,
+};
 
 use super::{
     Direction, GameState, NavigationDecision, Position, Snake, SnakeAppearance, SnakePlan,
@@ -43,7 +46,7 @@ impl Snake {
     /// AI 决策采用分层优先级策略，按以下顺序尝试：
     ///
     /// 1. **继续随机漫步**：如果当前正在随机漫步且下一步安全，继续沿当前方向走
-    /// 2. **触发随机漫步**：15% 概率进入随机漫步模式，持续 5-14 步
+    /// 2. **触发随机漫步**：按配置概率进入随机漫步模式，持续配置指定的步数范围
     /// 3. **追逐食物**：计算最近的食物位置，选择能接近食物的安全方向
     /// 4. **保持方向**：如果当前方向安全，继续前进
     /// 5. **紧急逃生**：从剩余安全方向中任选一个
@@ -75,11 +78,11 @@ impl Snake {
             };
         }
 
-        // 15% 概率触发随机漫步模式
+        // 按配置概率触发随机漫步模式
         let mut rng = rand::rng();
-        if rng.random_range(0..100) < 15 {
+        if rng.random_range(0..100) < AI_RANDOM_WALK_CHANCE_PERCENT {
             let walk_dir = self.random_walk_direction(game);
-            let steps = rng.random_range(5..15);
+            let steps = rng.random_range(AI_RANDOM_WALK_MIN_STEPS..=AI_RANDOM_WALK_MAX_STEPS);
             return NavigationDecision {
                 direction: walk_dir,
                 random_walk_steps: steps,

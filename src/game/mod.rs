@@ -9,9 +9,9 @@ mod spawn;
 mod tests;
 
 pub use corpse::{CorpseCell, CorpsePiece};
-pub use snake::{Snake, SnakeAppearance};
 #[cfg(test)]
 pub(crate) use snake::SnakeControl;
+pub use snake::{Snake, SnakeAppearance};
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
