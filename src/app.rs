@@ -26,9 +26,12 @@ pub struct App {
 
 impl App {
     /// 创建应用实例，并初始化默认游戏状态。
-    pub fn new(no_color: bool) -> Self {
+    pub fn new(no_color: bool, test_ai: bool) -> Self {
+        let mut game = GameState::new();
+        game.set_player_ai_control(test_ai);
+
         Self {
-            game: GameState::new(),
+            game,
             render_state: render::RenderState::new(),
             should_quit: false,
             window_too_small: false,

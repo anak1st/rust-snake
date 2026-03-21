@@ -235,12 +235,21 @@ impl GameState {
 
     /// 使用当前棋盘尺寸重新开始一局。
     pub fn restart(&mut self) {
+        let player_uses_ai = self.player.is_ai_controlled();
         *self = Self::with_board_size(self.width, self.height);
+        self.set_player_ai_control(player_uses_ai);
     }
 
     /// 使用新的棋盘尺寸重新开始一局。
     pub fn restart_with_board_size(&mut self, width: u16, height: u16) {
+        let player_uses_ai = self.player.is_ai_controlled();
         *self = Self::with_board_size(width, height);
+        self.set_player_ai_control(player_uses_ai);
+    }
+
+    /// 设置玩家蛇是否由 AI 接管控制。
+    pub fn set_player_ai_control(&mut self, enabled: bool) {
+        self.player.set_ai_controlled(enabled);
     }
 
     /// 更新玩家下一次移动方向，并忽略直接反向输入。

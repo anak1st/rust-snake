@@ -4,7 +4,7 @@ use crate::config::game::{
     AI_SNAKE_COUNT, BOMB_COUNT, FOOD_COUNT, SUPER_FOOD_COUNT, SUPER_FOOD_SCORE_GAIN,
 };
 
-use super::{Direction, GameState, Position, RunState};
+use super::{Direction, GameState, Position, RunState, SnakeControl};
 
 #[test]
 /// 验证每次 tick 都会让玩家蛇头向前推进一格。
@@ -43,6 +43,17 @@ fn wall_collision_ends_game() {
     }
 
     assert_eq!(game.run_state(), RunState::GameOver);
+}
+
+#[test]
+/// 验证将玩家切换为 AI 后，重新开始会保持该控制模式。
+fn restart_preserves_player_ai_control() {
+    let mut game = GameState::with_board_size(10, 8);
+    game.set_player_ai_control(true);
+
+    game.restart();
+
+    assert!(matches!(game.player.control, SnakeControl::Ai(_)));
 }
 
 #[test]

@@ -157,6 +157,17 @@ impl Snake {
         matches!(self.control, SnakeControl::Ai(_))
     }
 
+    /// 切换当前蛇的控制模式。
+    pub(super) fn set_ai_controlled(&mut self, enabled: bool) {
+        self.control = if enabled {
+            SnakeControl::Ai(AiState::new())
+        } else {
+            SnakeControl::Manual {
+                pending_direction: self.direction,
+            }
+        };
+    }
+
     /// 返回当前 AI 状态；如果不是 AI 控制则视为逻辑错误。
     pub(super) fn ai_state(&self) -> &AiState {
         match &self.control {
