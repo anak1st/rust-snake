@@ -11,7 +11,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
-use crate::config::app::{RENDER_FRAME_RATE_MS, TICK_RATE_MS};
+use crate::config::app::{RENDER_FRAME_RATE_MS, TEST_AI_TICK_RATE_MS, TICK_RATE_MS};
 use crate::game::{Direction, GameState, RunState};
 use crate::render::{self, board_size_for_terminal, is_terminal_too_small};
 
@@ -22,6 +22,7 @@ pub struct App {
     should_quit: bool,
     window_too_small: bool,
     no_color: bool,
+    tick_rate: Duration,
 }
 
 impl App {
@@ -36,6 +37,11 @@ impl App {
             should_quit: false,
             window_too_small: false,
             no_color,
+            tick_rate: Duration::from_millis(if test_ai {
+                TEST_AI_TICK_RATE_MS
+            } else {
+                TICK_RATE_MS
+            }),
         }
     }
 
@@ -59,7 +65,7 @@ impl App {
     /// - 循环直到收到退出信号
     fn run_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         let mut last_tick = Instant::now();
-        let tick_rate = Duration::from_millis(TICK_RATE_MS);
+        let tick_rate = self.tick_rate;
         let render_rate = Duration::from_millis(RENDER_FRAME_RATE_MS);
         let mut last_render_frame = Instant::now()
             .checked_sub(render_rate)

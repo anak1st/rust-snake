@@ -568,7 +568,10 @@ fn ai_avoids_entering_small_self_enclosed_space() {
     game.enemies.clear();
     game.player.body = rectangular_ring_body(2, 2, 4, 4, 3);
     game.player.direction = Direction::Up;
-    game.player.set_ai_controlled(true);
+    game.player.control = super::SnakeControl::Ai(super::snake::AiState {
+        random_walk_steps: 1,
+        random_walk_direction: Some(Direction::Right),
+    });
 
     assert!(!game.snake_step_has_adequate_space(game.player(), trapped_cell));
 
@@ -589,7 +592,10 @@ fn ai_still_enters_large_self_enclosed_space() {
     game.enemies.clear();
     game.player.body = rectangular_ring_body(1, 1, 8, 8, 2);
     game.player.direction = Direction::Up;
-    game.player.set_ai_controlled(true);
+    game.player.control = super::SnakeControl::Ai(super::snake::AiState {
+        random_walk_steps: 1,
+        random_walk_direction: Some(Direction::Right),
+    });
 
     assert!(game.snake_step_has_adequate_space(game.player(), roomy_cell));
 
