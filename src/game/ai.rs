@@ -10,6 +10,15 @@ use super::{
 
 impl GameState {
     /// 为一条 AI 计算下一步移动意图。
+    ///
+    /// 根据当前游戏状态，为指定 AI 选择最佳移动方向，
+    /// 并计算该移动带来的效果（吃到食物、撞到炸弹等）。
+    ///
+    /// # 参数
+    /// - `enemy_index`: AI 蛇在 `enemies` 数组中的索引
+    ///
+    /// # 返回值
+    /// 返回包含下一步位置、移动效果和导航决策的完整计划
     pub(super) fn plan_enemy_move(&self, enemy_index: usize) -> EnemyPlan {
         let navigation = self.choose_enemy_direction(enemy_index);
         let enemy = &self.enemies[enemy_index];
@@ -139,6 +148,17 @@ impl GameState {
     }
 
     /// 为随机漫步选择一个安全的方向。
+    ///
+    /// 随机尝试所有方向，从中选择一个安全的方向。
+    /// 如果没有安全方向，则尝试保持当前方向；
+    /// 如果当前方向也不安全，则默认返回向上。
+    ///
+    /// # 参数
+    /// - `enemy_index`: AI 蛇的索引
+    /// - `current_direction`: 当前移动方向
+    ///
+    /// # 返回值
+    /// 返回一个安全的移动方向
     fn random_walk_direction(&self, enemy_index: usize, current_direction: Direction) -> Direction {
         let all = [
             Direction::Up,
@@ -174,6 +194,21 @@ impl GameState {
     }
 
     /// 判断 AI 的下一步位置是否安全（不会立即撞死）。
+    ///
+    /// 安全性检查包括：
+    /// - 是否撞墙
+    /// - 是否撞到自身（考虑尾巴移动规则）
+    /// - 是否撞到炸弹、玩家或其他 AI
+    ///
+    /// 对于非墙类危险，AI 有一定概率不会主动规避，
+    /// 这增加了游戏的不确定性和可玩性。
+    ///
+    /// # 参数
+    /// - `enemy_index`: AI 蛇的索引
+    /// - `next`: 待检查的下一步位置
+    ///
+    /// # 返回值
+    /// 如果位置安全则返回 `true`
     fn enemy_step_is_safe(&self, enemy_index: usize, next: Position) -> bool {
         if self.hit_wall(next) {
             return false;
@@ -193,12 +228,21 @@ impl GameState {
     }
 
     /// AI 是否会主动规避一次非撞墙风险。
+    ///
+    /// 根据配置的概率决定 AI 是否会主动避开炸弹、玩家或其他 AI。
+    /// 这个机制让 AI 偶尔会"失误"，增加游戏的趣味性。
     fn enemy_avoids_non_wall_hazard(&self) -> bool {
         let mut rng = rand::rng();
         rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。
+    ///
+    /// 重生时会保留 AI 之前的分数，只重置位置和状态。
+    /// 如果无法在角落找到有效位置，会尝试随机位置。
+    ///
+    /// # 参数
+    /// - `enemy_index`: 需要重生的 AI 索引
     pub(super) fn respawn_enemy(&mut self, enemy_index: usize) {
         let score = self.enemies[enemy_index].snake.score;
 
@@ -211,6 +255,15 @@ impl GameState {
     }
 
     /// 尝试在指定 slot 对应的角落生成一条 AI 蛇。
+    ///
+    /// 优先在棋盘四角生成 AI，如果角落位置不可用，
+    /// 则回退到随机位置生成。
+    ///
+    /// # 参数
+    /// - `slot`: AI 蛇的槽位编号，决定出生角落
+    ///
+    /// # 返回值
+    /// 成功时返回生成的 AI 蛇，失败时返回 `None`
     pub(super) fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<EnemySnake> {
         if self.width < 3 && self.height < 3 {
             return None;
@@ -294,6 +347,15 @@ impl GameState {
     }
 
     /// 随机尝试生成一条 AI 蛇，最多尝试 256 次。
+    ///
+    /// 使用拒绝采样方法，随机生成候选位置，
+    /// 直到找到一个不与现有物体重叠的位置。
+    ///
+    /// # 参数
+    /// - `slot`: AI 蛇的槽位编号，用于确定外观
+    ///
+    /// # 返回值
+    /// 成功时返回生成的 AI 蛇，失败时返回 `None`
     fn try_spawn_enemy(&self, slot: usize) -> Option<EnemySnake> {
         if self.width < 3 && self.height < 3 {
             return None;
@@ -357,6 +419,15 @@ impl GameState {
     }
 
     /// 返回离指定坐标最近的一颗可食用物品。
+    ///
+    /// 在普通食物、尸体食物和超级食物中，
+    /// 选择曼哈顿距离最近的一个作为目标。
+    ///
+    /// # 参数
+    /// - `origin`: 起始位置（通常是 AI 蛇头）
+    ///
+    /// # 返回值
+    /// 返回最近食物的位置，如果没有食物则返回起始位置
     fn closest_consumable_to(&self, origin: Position) -> Position {
         self.foods
             .iter()
@@ -367,7 +438,18 @@ impl GameState {
             .unwrap_or(origin)
     }
 
-    /// 按“更接近目标优先，其余方向补齐”的顺序返回方向列表。
+    /// 按"更接近目标优先，其余方向补齐"的顺序返回方向列表。
+    ///
+    /// 首先添加能减少与目标距离的方向，
+    /// 然后按固定顺序补充剩余方向。
+    /// 这确保 AI 优先选择朝向食物的方向。
+    ///
+    /// # 参数
+    /// - `origin`: 起始位置
+    /// - `target`: 目标位置
+    ///
+    /// # 返回值
+    /// 返回按优先级排序的方向列表
     fn preferred_directions(&self, origin: Position, target: Position) -> Vec<Direction> {
         let mut directions = Vec::with_capacity(4);
 

@@ -16,13 +16,13 @@ impl GameState {
     ///
     /// tick 是核心逻辑推进函数，处理流程分为以下几个阶段：
     ///
-    /// 1. **方向同步**：将 pending_direction 同步为实际生效的 direction
-    /// 2. **玩家移动计算**：计算玩家下一步位置和格子效果
-    /// 3. **AI 移动规划**：为每条 AI 预规划下一步移动
-    /// 4. **碰撞检测**：判断玩家和 AI 是否会撞死
-    /// 5. **头撞头结算**：处理玩家与 AI、AI 与 AI 的头碰头情况
-    /// 6. **状态更新**：推进存活的蛇，重生死亡的 AI
-    /// 7. **收尾工作**：补充物品、递增 tick 计数
+    /// - **方向同步**：将 pending_direction 同步为实际生效的 direction
+    /// - **玩家移动计算**：计算玩家下一步位置和格子效果
+    /// - **AI 移动规划**：为每条 AI 预规划下一步移动
+    /// - **碰撞检测**：判断玩家和 AI 是否会撞死
+    /// - **头撞头结算**：处理玩家与 AI、AI 与 AI 的头撞头情况
+    /// - **状态更新**：推进存活的蛇，重生死亡的 AI
+    /// - **收尾工作**：补充物品、递增 tick 计数
     pub fn tick(&mut self) {
         // 检查游戏是否正在运行
         if self.state != RunState::Running {
@@ -59,7 +59,7 @@ impl GameState {
             })
             .collect::<Vec<_>>();
 
-        // 阶段 5：头撞头结算
+        // 头撞头结算
         self.resolve_player_enemy_head_on(
             player_next,
             player_effect,
@@ -74,7 +74,7 @@ impl GameState {
             plan.crashes = dies;
         }
 
-        // 阶段 6：保存碰撞前的蛇身（用于生成尸体食物）
+        // 保存碰撞前的蛇身（用于生成尸体食物）
         let player_body_before_crash = self.player.body().clone();
         let enemy_bodies_before_crash = self
             .enemies
@@ -82,12 +82,12 @@ impl GameState {
             .map(|enemy| enemy.body().clone())
             .collect::<Vec<_>>();
 
-        // 阶段 6：推进存活的玩家
+        // 推进存活的玩家
         if !player_dies {
             self.advance_player(player_next, player_effect);
         }
 
-        // 阶段 6：推进或重生 AI
+        // 推进或重生 AI
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
                 self.drop_legacy_from_body(&enemy_bodies_before_crash[enemy_index]);
@@ -97,13 +97,13 @@ impl GameState {
             }
         }
 
-        // 阶段 6：处理玩家死亡
+        // 处理玩家死亡
         if player_dies {
             self.drop_legacy_from_body(&player_body_before_crash);
             self.state = RunState::GameOver;
         }
 
-        // 阶段 7：收尾工作
+        // 收尾工作
         self.refill_items();
         self.tick_count += 1;
     }

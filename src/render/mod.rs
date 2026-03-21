@@ -84,7 +84,7 @@ impl DeathFlash {
     fn is_visible(&self, now: Instant) -> bool {
         let interval = Duration::from_millis(DEATH_FLASH_INTERVAL_MS).as_millis();
         let step = self.elapsed(now).as_millis() / interval.max(1);
-        step % 2 == 0
+        step.is_multiple_of(2)
     }
 }
 

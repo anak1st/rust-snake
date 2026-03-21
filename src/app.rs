@@ -46,6 +46,14 @@ impl App {
     }
 
     /// 驱动输入处理、固定逻辑 tick 和独立渲染帧。
+    ///
+    /// 主循环流程：
+    /// - 计算下次 tick 和渲染的时间点
+    /// - 等待事件或超时
+    /// - 处理输入事件
+    /// - 如果到达 tick 时间，推进游戏逻辑
+    /// - 如果到达渲染时间，绘制界面
+    /// - 循环直到收到退出信号
     fn run_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         let mut last_tick = Instant::now();
         let tick_rate = Duration::from_millis(TICK_RATE_MS);
@@ -125,32 +133,32 @@ impl App {
     ///
     /// **事件类型处理**：
     ///
-    /// 1. **键盘事件 (Key)**：
-    ///    - 仅处理 `KeyEventKind::Press` 类型，忽略释放和重复事件
-    ///    - 终端窗口过小时，只响应 'q' 退出键
+    /// - **键盘事件 (Key)**：
+    ///   - 仅处理 `KeyEventKind::Press` 类型，忽略释放和重复事件
+    ///   - 终端窗口过小时，只响应 'q' 退出键
     ///
-    /// 2. **方向控制**（WASD 或方向键）：
-    ///    - 在 Ready 状态下：输入方向键会同时启动游戏
-    ///    - 在 Running 状态下：仅更新方向
-    ///    - 在 Paused/GameOver 状态下：输入方向键会启动游戏（从 Ready 开始）
-    ///    - 禁止直接掉头（180度转向），由 `set_direction` 内部处理
+    /// - **方向控制**（WASD 或方向键）：
+    ///   - 在 Ready 状态下：输入方向键会同时启动游戏
+    ///   - 在 Running 状态下：仅更新方向
+    ///   - 在 Paused/GameOver 状态下：输入方向键会启动游戏（从 Ready 开始）
+    ///   - 禁止直接掉头（180度转向），由 `set_direction` 内部处理
     ///
-    /// 3. **开始/暂停**（Space 或 Enter）：
-    ///    - Ready 状态 -> 开始游戏
-    ///    - Running 状态 -> 切换到暂停
-    ///    - Paused 状态 -> 继续游戏
-    ///    - GameOver 状态 -> 无操作
+    /// - **开始/暂停**（Space 或 Enter）：
+    ///   - Ready 状态 -> 开始游戏
+    ///   - Running 状态 -> 切换到暂停
+    ///   - Paused 状态 -> 继续游戏
+    ///   - GameOver 状态 -> 无操作
     ///
-    /// 4. **重新开始**（r）：
-    ///    - 立即重置游戏到 Ready 状态，使用当前棋盘尺寸
+    /// - **重新开始**（r）：
+    ///   - 立即重置游戏到 Ready 状态，使用当前棋盘尺寸
     ///
-    /// 5. **退出**（q）：
-    ///    - 设置 `should_quit = true`，下次循环检测到后会退出
+    /// - **退出**（q）：
+    ///   - 设置 `should_quit = true`，下次循环检测到后会退出
     ///
-    /// 6. **窗口调整**（Resize）：
-    ///    - 终端窗口大小改变时，重新计算棋盘尺寸
-    ///    - 如果新尺寸过小，显示提示而非游戏界面
-    ///    - 窗口调整会自动重开一局新游戏
+    /// - **窗口调整**（Resize）：
+    ///   - 终端窗口大小改变时，重新计算棋盘尺寸
+    ///   - 如果新尺寸过小，显示提示而非游戏界面
+    ///   - 窗口调整会自动重开一局新游戏
     fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key) => {
