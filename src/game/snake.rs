@@ -52,6 +52,8 @@ pub struct Snake {
 
 impl Snake {
     /// 创建一条新的蛇。
+    ///
+    /// 初始化蛇身、方向、外观和控制方式，分数和待增长值默认为零。
     fn new(
         body: VecDeque<Position>,
         direction: Direction,
@@ -235,6 +237,8 @@ impl Snake {
 
 impl AiState {
     /// 创建一份初始 AI 状态。
+    ///
+    /// 默认不处于随机漫步模式，步数为零且无指定方向。
     fn new() -> Self {
         Self {
             random_walk_steps: 0,

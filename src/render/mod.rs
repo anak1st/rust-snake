@@ -76,6 +76,9 @@ impl RenderState {
         }
     }
 
+    /// 计算当前时刻的动画帧状态。
+    ///
+    /// 返回食物脉冲、超级食物脉冲以及活跃闪光效果的当前状态。
     fn animation_frame(&self, now: Instant) -> AnimationFrame {
         AnimationFrame {
             food_pulse_on: sparse_pulse_phase(
@@ -97,6 +100,9 @@ impl RenderState {
         }
     }
 
+    /// 记录游戏事件并创建对应的视觉效果。
+    ///
+    /// 目前仅处理尸块转食物事件，为每个事件创建闪光效果。
     fn record_game_events(&mut self, events: &[GameEvent], now: Instant) {
         for event in events {
             let GameEvent::CorpseFoodCreated(position) = *event;
@@ -110,14 +116,19 @@ impl RenderState {
 }
 
 impl CellFlash {
+    /// 计算闪光效果已持续的时间。
     fn elapsed(&self, now: Instant) -> Duration {
         now.saturating_duration_since(self.started_at)
     }
 
+    /// 判断闪光效果是否已结束。
     fn is_finished(&self, now: Instant) -> bool {
         self.elapsed(now) >= Duration::from_millis(FOOD_FLASH_DURATION_MS)
     }
 
+    /// 计算当前时刻闪光是否可见。
+    ///
+    /// 通过周期性闪烁实现视觉提示效果。
     fn is_visible(&self, now: Instant) -> bool {
         let interval = Duration::from_millis(FOOD_FLASH_INTERVAL_MS).as_millis();
         let step = self.elapsed(now).as_millis() / interval.max(1);
@@ -125,12 +136,18 @@ impl CellFlash {
     }
 }
 
+/// 计算普通脉冲相位，用于超级食物的周期性闪烁。
+///
+/// 根据锚点时间和当前时间计算是否处于亮起状态。
 fn pulse_phase(anchor: Instant, now: Instant, interval_ms: u64) -> bool {
     let interval = Duration::from_millis(interval_ms).as_millis();
     let step = now.saturating_duration_since(anchor).as_millis() / interval.max(1);
     step % 2 == 0
 }
 
+/// 计算稀疏脉冲相位，用于普通食物的低频闪烁。
+///
+/// 每隔 `every_steps` 个周期才亮起一次，产生更柔和的视觉效果。
 fn sparse_pulse_phase(anchor: Instant, now: Instant, interval_ms: u64, every_steps: u128) -> bool {
     let interval = Duration::from_millis(interval_ms).as_millis();
     let step = now.saturating_duration_since(anchor).as_millis() / interval.max(1);
@@ -189,14 +206,19 @@ pub fn board_size_for_terminal(width: u16, height: u16) -> (u16, u16) {
     (board_width, board_height)
 }
 
+/// 返回终端最小宽度要求。
 fn min_terminal_width() -> u16 {
     MIN_BOARD_WIDTH + 2
 }
 
+/// 返回终端最小高度要求。
 fn min_terminal_height() -> u16 {
     HEADER_HEIGHT + FOOTER_HEIGHT + INFO_HEIGHT + MIN_BOARD_HEIGHT + 2
 }
 
+/// 在给定区域内计算居中的子区域。
+///
+/// 用于在棋盘中央显示弹窗或提示信息。
 pub(crate) fn centered_area(area: Rect, width: u16, height: u16) -> Rect {
     let popup_width = width.min(area.width.saturating_sub(2)).max(1);
     let popup_height = height.min(area.height.saturating_sub(2)).max(1);

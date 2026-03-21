@@ -8,6 +8,7 @@ use crate::game::{Direction as SnakeDirection, GameState, RunState, Snake};
 
 use super::style::{MAIN_BORDER_COLOR, MUTED_COLOR, TEXT_COLOR, style_with_color, styled_block};
 
+/// 绘制顶部标题栏。
 pub(crate) fn draw_header(frame: &mut Frame, area: Rect, no_color: bool) {
     let header = Paragraph::new(Line::from("Rust Snake"))
         .alignment(Alignment::Center)
@@ -16,6 +17,9 @@ pub(crate) fn draw_header(frame: &mut Frame, area: Rect, no_color: bool) {
     frame.render_widget(header, area);
 }
 
+/// 绘制状态信息栏。
+///
+/// 显示当前 tick、分数、敌蛇数量、运行状态、方向等信息。
 pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_color: bool) {
     let status_text = match game.run_state() {
         RunState::Ready => Span::styled("Ready", style_with_color(Color::Cyan, no_color)),
@@ -78,6 +82,9 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_co
     frame.render_widget(info, area);
 }
 
+/// 绘制底部帮助栏。
+///
+/// 根据当前游戏状态显示对应的操作提示。
 pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: RunState, no_color: bool) {
     let footer = Paragraph::new(Line::from(help_text(state)))
         .alignment(Alignment::Center)
@@ -86,6 +93,9 @@ pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: RunState, no_col
     frame.render_widget(footer, area);
 }
 
+/// 根据游戏状态绘制覆盖层。
+///
+/// 在 Ready、Paused、GameOver 状态下显示提示弹窗。
 pub(crate) fn draw_state_overlay(
     frame: &mut Frame,
     area: Rect,
@@ -131,6 +141,7 @@ pub(crate) fn draw_state_overlay(
     }
 }
 
+/// 绘制终端窗口过小时的提示界面。
 pub(crate) fn draw_too_small(
     frame: &mut Frame,
     no_color: bool,
@@ -167,6 +178,7 @@ pub(crate) fn draw_too_small(
     frame.render_widget(popup, popup_area);
 }
 
+/// 根据游戏状态返回对应的帮助文本。
 fn help_text(state: RunState) -> &'static str {
     match state {
         RunState::Ready => "Enter / Space / 方向键开始 | q 退出 | 调整窗口会重开",
@@ -176,6 +188,7 @@ fn help_text(state: RunState) -> &'static str {
     }
 }
 
+/// 格式化敌蛇方向信息为可显示的 Span 列表。
 fn format_enemy_directions(enemies: &[Snake], no_color: bool) -> Vec<Span<'static>> {
     if enemies.is_empty() {
         return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
@@ -200,6 +213,7 @@ fn format_enemy_directions(enemies: &[Snake], no_color: bool) -> Vec<Span<'stati
     spans
 }
 
+/// 格式化敌蛇分数信息为可显示的 Span 列表。
 fn format_enemy_scores(enemies: &[Snake], no_color: bool) -> Vec<Span<'static>> {
     if enemies.is_empty() {
         return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
@@ -220,6 +234,7 @@ fn format_enemy_scores(enemies: &[Snake], no_color: bool) -> Vec<Span<'static>> 
     spans
 }
 
+/// 将方向枚举转换为显示符号。
 fn direction_label(direction: SnakeDirection) -> &'static str {
     match direction {
         SnakeDirection::Up => "^",
@@ -229,6 +244,7 @@ fn direction_label(direction: SnakeDirection) -> &'static str {
     }
 }
 
+/// 绘制居中的消息弹窗。
 fn draw_message_popup(
     frame: &mut Frame,
     area: Rect,

@@ -20,10 +20,12 @@ struct BoardCell {
 }
 
 impl BoardCell {
+    /// 创建一个新的棋盘格子。
     fn new(glyph: &'static str, color: Color, bold: bool) -> Self {
         Self { glyph, color, bold }
     }
 
+    /// 将格子转换为可渲染的 Span。
     fn into_span(self, no_color: bool) -> Span<'static> {
         let mut style = style_with_color(self.color, no_color);
         if self.bold {
@@ -34,6 +36,9 @@ impl BoardCell {
     }
 }
 
+/// 绘制游戏棋盘区域。
+///
+/// 将游戏状态渲染为字符网格，包含蛇、食物、炸弹等所有实体。
 pub(crate) fn draw_board(
     frame: &mut Frame,
     area: Rect,
@@ -49,6 +54,9 @@ pub(crate) fn draw_board(
     frame.render_widget(board, area);
 }
 
+/// 将游戏状态渲染为多行文本。
+///
+/// 遍历棋盘每个位置，根据游戏状态确定显示内容。
 fn render_live_board(
     game: &GameState,
     animation: &AnimationFrame,
@@ -71,6 +79,9 @@ fn render_live_board(
     rows
 }
 
+/// 根据游戏状态确定指定位置应显示的格子内容。
+///
+/// 按优先级检查：玩家蛇头 > 玩家蛇身 > 敌蛇 > 尸块 > 食物 > 超级食物 > 炸弹 > 空格。
 fn board_cell_for_position(game: &GameState, position: Position) -> BoardCell {
     let player = game.player();
 
@@ -109,6 +120,9 @@ fn board_cell_for_position(game: &GameState, position: Position) -> BoardCell {
     BoardCell::new("·", MUTED_COLOR, false)
 }
 
+/// 应用动画效果到格子。
+///
+/// 先检查闪光效果，再应用食物脉冲效果。
 fn animate_cell(
     game: &GameState,
     position: Position,
@@ -123,6 +137,7 @@ fn animate_cell(
     pulse_super_food_cell(game, position, cell, animation)
 }
 
+/// 为普通食物应用脉冲效果。
 fn pulse_food_cell(
     game: &GameState,
     position: Position,
@@ -140,6 +155,7 @@ fn pulse_food_cell(
     }
 }
 
+/// 为超级食物应用脉冲效果。
 fn pulse_super_food_cell(
     game: &GameState,
     position: Position,
@@ -157,6 +173,7 @@ fn pulse_super_food_cell(
     }
 }
 
+/// 查找指定位置的活跃闪光效果。
 fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<ActiveCellFlash> {
     flashes
         .iter()
@@ -164,12 +181,14 @@ fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<Ac
         .find(|flash| flash.position == position && flash.is_visible)
 }
 
+/// 根据闪光类型返回对应的格子样式。
 fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
     match flash.kind {
         CellFlashKind::Food => BoardCell::new("*", Color::LightGreen, true),
     }
 }
 
+/// 查找占据指定位置的敌蛇，返回蛇引用和是否为蛇头。
 fn enemy_cell(enemies: &[Snake], position: Position) -> Option<(&Snake, bool)> {
     enemies.iter().find_map(|enemy| {
         if !enemy.is_alive() {
