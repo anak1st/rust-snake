@@ -45,13 +45,13 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_co
             Span::styled("Score: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.score().to_string(),
-                style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
+                style_with_color(Color::White, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled("Enemy Count: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 game.enemy_count().to_string(),
-                style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD),
+                style_with_color(Color::White, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled("Enemy Score: ", style_with_color(MUTED_COLOR, no_color)),
@@ -63,7 +63,7 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_co
             Span::styled("Dir: ", style_with_color(MUTED_COLOR, no_color)),
             Span::styled(
                 direction_text,
-                style_with_color(Color::LightBlue, no_color).add_modifier(Modifier::BOLD),
+                style_with_color(Color::White, no_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
             Span::styled("AI Dir: ", style_with_color(MUTED_COLOR, no_color)),

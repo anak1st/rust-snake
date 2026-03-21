@@ -17,14 +17,12 @@ mod style;
 const FOOD_FLASH_DURATION_MS: u64 = 220;
 const FOOD_FLASH_INTERVAL_MS: u64 = 55;
 const SUPER_FOOD_PULSE_INTERVAL_MS: u64 = 180;
+const FOOD_PULSE_HIGHLIGHT_EVERY_STEPS: u128 = 4;
 
 /// 渲染层持有的短时动画状态。
 pub struct RenderState {
     pulse_anchor: Instant,
     last_processed_event_tick: Option<u64>,
-    previous_run_state: RunState,
-    previous_foods: Vec<Position>,
-    previous_super_foods: Vec<Position>,
     cell_flashes: Vec<CellFlash>,
 }
 
@@ -37,7 +35,6 @@ struct CellFlash {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CellFlashKind {
     Food,
-    SuperFood,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +45,7 @@ pub(crate) struct ActiveCellFlash {
 }
 
 pub(crate) struct AnimationFrame {
+    pub food_pulse_on: bool,
     pub super_food_pulse_on: bool,
     pub active_flashes: Vec<ActiveCellFlash>,
 }
@@ -58,9 +56,6 @@ impl RenderState {
         Self {
             pulse_anchor: Instant::now(),
             last_processed_event_tick: None,
-            previous_run_state: RunState::Ready,
-            previous_foods: Vec::new(),
-            previous_super_foods: Vec::new(),
             cell_flashes: Vec::new(),
         }
     }
@@ -68,12 +63,6 @@ impl RenderState {
     /// 按当前游戏状态推进渲染层动画。
     pub fn sync(&mut self, game: &GameState, now: Instant) {
         let run_state = game.run_state();
-        let current_foods = game.foods();
-        let current_super_foods = game.super_foods();
-
-        if self.previous_run_state == RunState::Running {
-            self.record_disappeared_foods(current_foods, current_super_foods, now);
-        }
 
         if self.last_processed_event_tick != Some(game.tick_count()) {
             self.record_game_events(game.recent_events(), now);
@@ -85,15 +74,17 @@ impl RenderState {
         if matches!(run_state, RunState::Ready) {
             self.cell_flashes.clear();
         }
-
-        self.previous_run_state = run_state;
-        self.previous_foods = current_foods.to_vec();
-        self.previous_super_foods = current_super_foods.to_vec();
     }
 
     fn animation_frame(&self, now: Instant) -> AnimationFrame {
         AnimationFrame {
-            super_food_pulse_on: pulse_phase(self.pulse_anchor, now),
+            food_pulse_on: sparse_pulse_phase(
+                self.pulse_anchor,
+                now,
+                SUPER_FOOD_PULSE_INTERVAL_MS,
+                FOOD_PULSE_HIGHLIGHT_EVERY_STEPS,
+            ),
+            super_food_pulse_on: pulse_phase(self.pulse_anchor, now, SUPER_FOOD_PULSE_INTERVAL_MS),
             active_flashes: self
                 .cell_flashes
                 .iter()
@@ -116,33 +107,6 @@ impl RenderState {
             });
         }
     }
-
-    fn record_disappeared_foods(
-        &mut self,
-        current_foods: &[Position],
-        current_super_foods: &[Position],
-        now: Instant,
-    ) {
-        for &position in &self.previous_foods {
-            if !current_foods.contains(&position) {
-                self.cell_flashes.push(CellFlash {
-                    position,
-                    kind: CellFlashKind::Food,
-                    started_at: now,
-                });
-            }
-        }
-
-        for &position in &self.previous_super_foods {
-            if !current_super_foods.contains(&position) {
-                self.cell_flashes.push(CellFlash {
-                    position,
-                    kind: CellFlashKind::SuperFood,
-                    started_at: now,
-                });
-            }
-        }
-    }
 }
 
 impl CellFlash {
@@ -161,10 +125,16 @@ impl CellFlash {
     }
 }
 
-fn pulse_phase(anchor: Instant, now: Instant) -> bool {
-    let interval = Duration::from_millis(SUPER_FOOD_PULSE_INTERVAL_MS).as_millis();
+fn pulse_phase(anchor: Instant, now: Instant, interval_ms: u64) -> bool {
+    let interval = Duration::from_millis(interval_ms).as_millis();
     let step = now.saturating_duration_since(anchor).as_millis() / interval.max(1);
     step % 2 == 0
+}
+
+fn sparse_pulse_phase(anchor: Instant, now: Instant, interval_ms: u64, every_steps: u128) -> bool {
+    let interval = Duration::from_millis(interval_ms).as_millis();
+    let step = now.saturating_duration_since(anchor).as_millis() / interval.max(1);
+    step % every_steps == every_steps.saturating_sub(1)
 }
 
 /// 根据当前游戏状态绘制整个界面，并叠加动画帧。
@@ -257,7 +227,7 @@ mod tests {
     use std::time::Duration;
 
     use super::RenderState;
-    use crate::game::{GameEvent, GameState, Position, RunState};
+    use crate::game::{GameEvent, GameState, Position};
 
     #[test]
     /// 验证尸块转成食物时会触发短时闪光，并在重开后清除。
@@ -293,25 +263,6 @@ mod tests {
     }
 
     #[test]
-    /// 验证运行中消失的普通食物会生成短时闪光。
-    fn consumed_food_creates_flash() {
-        let now = std::time::Instant::now();
-        let mut render_state = RenderState::new();
-        let mut game = GameState::with_board_size(10, 8);
-        let flash_position = Position { x: 99, y: 99 };
-
-        game.start();
-        render_state.previous_run_state = RunState::Running;
-        render_state.previous_foods = vec![flash_position];
-        render_state.sync(&game, now);
-
-        let frame = render_state.animation_frame(now);
-        assert!(frame.active_flashes.iter().any(|flash| {
-            flash.position == flash_position && flash.kind == super::CellFlashKind::Food
-        }));
-    }
-
-    #[test]
     /// 验证场上的超级食物脉冲会按固定节奏切换相位。
     fn super_food_pulse_phase_toggles_over_time() {
         let render_state = RenderState::new();
@@ -323,5 +274,28 @@ mod tests {
             .super_food_pulse_on;
 
         assert_ne!(first, second);
+    }
+
+    #[test]
+    /// 验证普通食物采用稀疏闪烁，而不是像超级食物那样每拍交替。
+    fn normal_food_pulse_is_sparse() {
+        let render_state = RenderState::new();
+        let now = std::time::Instant::now();
+
+        let step0 = render_state.animation_frame(now).food_pulse_on;
+        let step1 = render_state
+            .animation_frame(now + Duration::from_millis(super::SUPER_FOOD_PULSE_INTERVAL_MS))
+            .food_pulse_on;
+        let step2 = render_state
+            .animation_frame(now + Duration::from_millis(super::SUPER_FOOD_PULSE_INTERVAL_MS * 2))
+            .food_pulse_on;
+        let step3 = render_state
+            .animation_frame(now + Duration::from_millis(super::SUPER_FOOD_PULSE_INTERVAL_MS * 3))
+            .food_pulse_on;
+
+        assert!(!step0);
+        assert!(!step1);
+        assert!(!step2);
+        assert!(step3);
     }
 }

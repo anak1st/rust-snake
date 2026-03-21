@@ -119,7 +119,25 @@ fn animate_cell(
         return flash_cell(flash);
     }
 
+    let cell = pulse_food_cell(game, position, cell, animation);
     pulse_super_food_cell(game, position, cell, animation)
+}
+
+fn pulse_food_cell(
+    game: &GameState,
+    position: Position,
+    cell: BoardCell,
+    animation: &AnimationFrame,
+) -> BoardCell {
+    if !game.foods().contains(&position) && !game.legacy_foods().contains(&position) {
+        return cell;
+    }
+
+    if animation.food_pulse_on {
+        BoardCell::new("*", Color::LightGreen, true)
+    } else {
+        BoardCell::new("*", FOOD_COLOR, true)
+    }
 }
 
 fn pulse_super_food_cell(
@@ -149,7 +167,6 @@ fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<Ac
 fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
     match flash.kind {
         CellFlashKind::Food => BoardCell::new("*", Color::LightGreen, true),
-        CellFlashKind::SuperFood => BoardCell::new("$", Color::White, true),
     }
 }
 
