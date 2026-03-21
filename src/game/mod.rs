@@ -1,14 +1,15 @@
-use std::collections::VecDeque;
-
 use ratatui::style::Color;
 
 use crate::config::game::{AI_SNAKE_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WIDTH};
 
 mod ai;
 mod logic;
+mod snake;
 mod spawn;
 #[cfg(test)]
 mod tests;
+
+pub use snake::{Snake, SnakeAppearance, SnakeControl};
 
 /// 表示游戏当前所处的运行阶段。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,267 +57,6 @@ impl Position {
     /// 计算与另一个坐标之间的曼哈顿距离。
     fn manhattan_distance(self, other: Self) -> u16 {
         self.x.abs_diff(other.x) + self.y.abs_diff(other.y)
-    }
-}
-
-/// 蛇的固定外观信息。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SnakeAppearance {
-    /// 蛇头显示符号。
-    head_glyph: &'static str,
-    /// 蛇身显示符号。
-    body_glyph: &'static str,
-    /// 蛇头颜色。
-    head_color: Color,
-    /// 蛇身颜色。
-    body_color: Color,
-}
-
-/// 玩家和 AI 共用的基础蛇状态。
-#[derive(Debug, Clone)]
-pub struct Snake {
-    /// 当前已生效的移动方向。
-    direction: Direction,
-    /// 蛇身，尾部在前、头部在后。
-    body: VecDeque<Position>,
-    /// 当前累计得分。
-    score: u32,
-    /// 未来还应继续增长的节数。
-    pending_growth: u16,
-    /// 该蛇的固定外观配置。
-    appearance: SnakeAppearance,
-}
-
-/// 玩家蛇的完整状态。
-#[derive(Debug, Clone)]
-pub struct PlayerSnake {
-    /// 基础蛇状态。
-    snake: Snake,
-    /// 玩家最新输入、将在下一帧生效的方向。
-    pending_direction: Direction,
-}
-
-/// 单条 AI 敌蛇的完整状态。
-#[derive(Debug, Clone)]
-pub struct EnemySnake {
-    /// 基础蛇状态。
-    snake: Snake,
-    /// 随机漫步剩余步数，为 0 时表示追逐食物。
-    random_walk_steps: u8,
-    /// 随机漫步方向。
-    random_walk_direction: Option<Direction>,
-}
-
-impl Snake {
-    /// 创建一条新的蛇。
-    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
-        Self {
-            direction,
-            body,
-            score: 0,
-            pending_growth: 0,
-            appearance,
-        }
-    }
-
-    /// 返回当前移动方向。
-    pub fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    /// 返回蛇身坐标。
-    pub fn body(&self) -> &VecDeque<Position> {
-        &self.body
-    }
-
-    /// 返回累计得分。
-    pub fn score(&self) -> u32 {
-        self.score
-    }
-
-    /// 返回蛇头符号。
-    pub fn head_glyph(&self) -> &'static str {
-        self.appearance.head_glyph
-    }
-
-    /// 返回蛇身符号。
-    pub fn body_glyph(&self) -> &'static str {
-        self.appearance.body_glyph
-    }
-
-    /// 返回蛇头颜色。
-    pub fn head_color(&self) -> Color {
-        self.appearance.head_color
-    }
-
-    /// 返回蛇身颜色。
-    pub fn body_color(&self) -> Color {
-        self.appearance.body_color
-    }
-
-    /// 返回蛇头位置。如果身体为空，返回 (0, 0)。
-    fn head(&self) -> Position {
-        self.body.back().copied().unwrap_or(Position { x: 0, y: 0 })
-    }
-}
-
-impl PlayerSnake {
-    /// 创建玩家蛇。
-    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
-        Self {
-            snake: Snake::new(body, direction, appearance),
-            pending_direction: direction,
-        }
-    }
-
-    /// 返回玩家当前已生效方向。
-    pub fn direction(&self) -> Direction {
-        self.snake.direction()
-    }
-
-    /// 返回玩家待生效方向。
-    fn pending_direction(&self) -> Direction {
-        self.pending_direction
-    }
-
-    /// 返回玩家蛇身坐标。
-    pub fn body(&self) -> &VecDeque<Position> {
-        self.snake.body()
-    }
-
-    /// 返回玩家当前得分。
-    pub fn score(&self) -> u32 {
-        self.snake.score()
-    }
-
-    /// 返回玩家蛇头符号。
-    pub fn head_glyph(&self) -> &'static str {
-        self.snake.head_glyph()
-    }
-
-    /// 返回玩家蛇身符号。
-    pub fn body_glyph(&self) -> &'static str {
-        self.snake.body_glyph()
-    }
-
-    /// 返回玩家蛇头颜色。
-    pub fn head_color(&self) -> Color {
-        self.snake.head_color()
-    }
-
-    /// 返回玩家蛇身颜色。
-    pub fn body_color(&self) -> Color {
-        self.snake.body_color()
-    }
-
-    /// 返回玩家蛇头位置。
-    pub fn head(&self) -> Position {
-        self.snake.head()
-    }
-}
-
-impl EnemySnake {
-    /// 创建一条新的 AI 蛇，初始随机漫步步数为 0。
-    fn new(body: VecDeque<Position>, direction: Direction, appearance: SnakeAppearance) -> Self {
-        Self {
-            snake: Snake::new(body, direction, appearance),
-            random_walk_steps: 0,
-            random_walk_direction: None,
-        }
-    }
-
-    /// 返回 AI 当前移动方向。
-    pub fn direction(&self) -> Direction {
-        self.snake.direction()
-    }
-
-    /// 返回 AI 蛇身坐标。
-    pub fn body(&self) -> &VecDeque<Position> {
-        self.snake.body()
-    }
-
-    /// 返回 AI 当前累计得分。
-    pub fn score(&self) -> u32 {
-        self.snake.score()
-    }
-
-    /// 返回 AI 蛇头符号。
-    pub fn head_glyph(&self) -> &'static str {
-        self.snake.head_glyph()
-    }
-
-    /// 返回 AI 蛇身符号。
-    pub fn body_glyph(&self) -> &'static str {
-        self.snake.body_glyph()
-    }
-
-    /// 返回 AI 蛇头颜色。
-    pub fn head_color(&self) -> Color {
-        self.snake.head_color()
-    }
-
-    /// 返回 AI 蛇身颜色。
-    pub fn body_color(&self) -> Color {
-        self.snake.body_color()
-    }
-
-    /// 返回 AI 蛇头位置。如果身体为空，返回 (0, 0)。
-    fn head(&self) -> Position {
-        self.snake.head()
-    }
-}
-
-impl SnakeAppearance {
-    /// 返回玩家蛇的外观配置。
-    fn player() -> Self {
-        Self {
-            head_glyph: "@",
-            body_glyph: "o",
-            head_color: Color::White,
-            body_color: Color::White,
-        }
-    }
-
-    /// 按固定槽位返回 AI 的外观配置。
-    fn for_slot(slot: usize) -> Self {
-        match slot % 6 {
-            0 => Self {
-                head_glyph: "A",
-                body_glyph: "a",
-                head_color: Color::LightMagenta,
-                body_color: Color::Magenta,
-            },
-            1 => Self {
-                head_glyph: "B",
-                body_glyph: "b",
-                head_color: Color::LightCyan,
-                body_color: Color::Cyan,
-            },
-            2 => Self {
-                head_glyph: "C",
-                body_glyph: "c",
-                head_color: Color::LightYellow,
-                body_color: Color::Yellow,
-            },
-            3 => Self {
-                head_glyph: "D",
-                body_glyph: "d",
-                head_color: Color::LightRed,
-                body_color: Color::Red,
-            },
-            4 => Self {
-                head_glyph: "E",
-                body_glyph: "e",
-                head_color: Color::LightBlue,
-                body_color: Color::Blue,
-            },
-            _ => Self {
-                head_glyph: "F",
-                body_glyph: "f",
-                head_color: Color::White,
-                body_color: Color::Gray,
-            },
-        }
     }
 }
 
@@ -407,9 +147,9 @@ pub struct GameState {
     /// 游戏当前运行状态。
     state: RunState,
     /// 玩家蛇。
-    player: PlayerSnake,
+    player: Snake,
     /// 所有 AI 敌蛇。
-    enemies: Vec<EnemySnake>,
+    enemies: Vec<Snake>,
     /// 当前棋盘上的所有食物位置。
     foods: Vec<Position>,
     /// 蛇死亡后留下的尸体食物位置。
@@ -433,7 +173,7 @@ impl GameState {
 
     /// 按指定棋盘尺寸初始化一局新游戏。
     pub fn with_board_size(width: u16, height: u16) -> Self {
-        let player = PlayerSnake::new(
+        let player = Snake::new_manual(
             Self::spawn_player_snake(width, height),
             Direction::Right,
             SnakeAppearance::player(),
@@ -497,7 +237,7 @@ impl GameState {
             return;
         }
 
-        self.player.pending_direction = direction;
+        self.player.set_manual_direction(direction);
     }
 
     /// 返回当前棋盘尺寸。
@@ -531,12 +271,12 @@ impl GameState {
     }
 
     /// 返回所有 AI 敌蛇。
-    pub fn enemies(&self) -> &[EnemySnake] {
+    pub fn enemies(&self) -> &[Snake] {
         &self.enemies
     }
 
     /// 返回玩家蛇。
-    pub fn player(&self) -> &PlayerSnake {
+    pub fn player(&self) -> &Snake {
         &self.player
     }
 

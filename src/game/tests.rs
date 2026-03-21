@@ -163,14 +163,16 @@ fn crashing_into_enemy_drops_legacy() {
     game.foods.clear();
     game.super_foods.clear();
     game.bombs.clear();
-    game.player.snake.body = VecDeque::from([
+    game.player.body = VecDeque::from([
         Position { x: 1, y: 4 },
         Position { x: 2, y: 4 },
         Position { x: 3, y: 4 },
     ]);
-    game.player.snake.direction = Direction::Right;
-    game.player.pending_direction = Direction::Right;
-    game.enemies = vec![super::EnemySnake::new(
+    game.player.direction = Direction::Right;
+    game.player.control = super::SnakeControl::Manual {
+        pending_direction: Direction::Right,
+    };
+    game.enemies = vec![super::Snake::new_ai(
         VecDeque::from([
             Position { x: 6, y: 4 },
             Position { x: 5, y: 4 },
@@ -199,14 +201,16 @@ fn player_crashes_into_enemy_body() {
     game.foods.clear();
     game.super_foods.clear();
     game.bombs.clear();
-    game.player.snake.body = VecDeque::from([
+    game.player.body = VecDeque::from([
         Position { x: 3, y: 4 },
         Position { x: 4, y: 4 },
         Position { x: 5, y: 4 },
     ]);
-    game.player.snake.direction = Direction::Right;
-    game.player.pending_direction = Direction::Right;
-    game.enemies = vec![super::EnemySnake::new(
+    game.player.direction = Direction::Right;
+    game.player.control = super::SnakeControl::Manual {
+        pending_direction: Direction::Right,
+    };
+    game.enemies = vec![super::Snake::new_ai(
         VecDeque::from([
             Position { x: 7, y: 4 },
             Position { x: 6, y: 4 },
@@ -233,13 +237,15 @@ fn legacy_food_does_not_reduce_normal_food_refill() {
     game.super_foods.clear();
     game.bombs.clear();
     game.enemies.clear();
-    game.player.snake.body = VecDeque::from([
+    game.player.body = VecDeque::from([
         Position { x: 1, y: 4 },
         Position { x: 2, y: 4 },
         Position { x: 3, y: 4 },
     ]);
-    game.player.snake.direction = Direction::Right;
-    game.player.pending_direction = Direction::Right;
+    game.player.direction = Direction::Right;
+    game.player.control = super::SnakeControl::Manual {
+        pending_direction: Direction::Right,
+    };
     game.bombs = vec![Position { x: 4, y: 4 }];
     game.start();
 
@@ -271,13 +277,13 @@ fn smaller_snake_loses_head_on() {
     let mut enemy_dies = vec![false];
 
     let mut game = game;
-    game.player.snake.body = VecDeque::from([
+    game.player.body = VecDeque::from([
         Position { x: 3, y: 4 },
         Position { x: 4, y: 4 },
         Position { x: 5, y: 4 },
         Position { x: 5, y: 5 },
     ]);
-    game.enemies = vec![super::EnemySnake::new(
+    game.enemies = vec![super::Snake::new_ai(
         VecDeque::from([
             Position { x: 8, y: 4 },
             Position { x: 7, y: 4 },

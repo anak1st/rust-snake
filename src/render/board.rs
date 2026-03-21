@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::game::{EnemySnake, GameState, Position};
+use crate::game::{GameState, Position, Snake};
 
 use super::style::{
     BOMB_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR, style_with_color,
@@ -157,7 +157,7 @@ fn flash_cell(flash: ActiveCellFlash) -> BoardCell {
     }
 }
 
-fn enemy_cell(enemies: &[EnemySnake], position: Position) -> Option<(&EnemySnake, bool)> {
+fn enemy_cell(enemies: &[Snake], position: Position) -> Option<(&Snake, bool)> {
     enemies.iter().find_map(|enemy| {
         if Some(position) == enemy.body().back().copied() {
             Some((enemy, true))

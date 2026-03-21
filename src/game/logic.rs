@@ -7,9 +7,7 @@ use crate::config::game::{
     SUPER_FOOD_GROWTH_AMOUNT, SUPER_FOOD_SCORE_GAIN,
 };
 
-use super::{
-    ConsumableKind, Direction, EnemyPlan, GameState, Position, RunState, Snake, TileEffect,
-};
+use super::{ConsumableKind, Direction, EnemyPlan, GameState, Position, RunState, TileEffect};
 
 impl GameState {
     /// 推进一帧游戏逻辑，处理玩家、AI、食物和碰撞。
@@ -32,7 +30,7 @@ impl GameState {
         self.recent_events.clear();
 
         // 方向同步
-        self.player.snake.direction = self.player.pending_direction();
+        self.player.sync_control_direction();
 
         // 玩家移动计算
         let player_next = self.next_position(self.player_head(), self.player.direction());
@@ -45,7 +43,7 @@ impl GameState {
         }
 
         // 碰撞检测
-        let player_grows = self.snake_grows(&self.player.snake, player_effect.growth_amount);
+        let player_grows = self.player.grows(player_effect.growth_amount);
         let mut player_dies = self.player_hits_hazard_or_self(player_next, player_effect)
             || self.player_hits_enemy_body(player_next, &enemy_plans);
         let mut enemy_dies = (0..enemy_plans.len())
@@ -92,7 +90,7 @@ impl GameState {
         // 推进或重生 AI
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
-                let appearance = self.enemies[enemy_index].snake.appearance;
+                let appearance = self.enemies[enemy_index].appearance;
                 self.record_snake_death(&enemy_bodies_before_crash[enemy_index], appearance);
                 self.drop_legacy_from_body(&enemy_bodies_before_crash[enemy_index]);
                 self.respawn_enemy(enemy_index);
@@ -103,7 +101,7 @@ impl GameState {
 
         // 处理玩家死亡
         if player_dies {
-            self.record_snake_death(&player_body_before_crash, self.player.snake.appearance);
+            self.record_snake_death(&player_body_before_crash, self.player.appearance);
             self.drop_legacy_from_body(&player_body_before_crash);
             self.state = RunState::GameOver;
         }
@@ -115,12 +113,8 @@ impl GameState {
 
     /// 让玩家蛇前进一步，并处理吃到物品后的增长。
     fn advance_player(&mut self, next_head: Position, effect: TileEffect) {
-        Self::advance_snake(
-            &mut self.player.snake,
-            next_head,
-            effect.growth_amount,
-            effect.score_gain,
-        );
+        self.player
+            .advance(next_head, effect.growth_amount, effect.score_gain);
         self.consume_tile(next_head, effect);
     }
 
@@ -128,12 +122,7 @@ impl GameState {
     fn advance_enemy(&mut self, enemy_index: usize, plan: EnemyPlan) {
         let enemy = &mut self.enemies[enemy_index];
         enemy.apply_navigation(plan.navigation);
-        Self::advance_snake(
-            &mut enemy.snake,
-            plan.next_head,
-            plan.growth_amount,
-            plan.score_gain,
-        );
+        enemy.advance(plan.next_head, plan.growth_amount, plan.score_gain);
         self.consume_tile(
             plan.next_head,
             TileEffect {
@@ -152,7 +141,7 @@ impl GameState {
             || self.occupies_with_tail_rules(
                 self.player.body(),
                 next_head,
-                self.snake_grows(&self.player.snake, player_effect.growth_amount),
+                self.player.grows(player_effect.growth_amount),
             )
     }
 
@@ -173,7 +162,7 @@ impl GameState {
             || self.occupies_with_tail_rules(
                 enemy.body(),
                 plan.next_head,
-                self.snake_grows(&enemy.snake, plan.growth_amount),
+                enemy.grows(plan.growth_amount),
             )
     }
 
@@ -222,7 +211,7 @@ impl GameState {
         enemy_dies: &mut [bool],
     ) {
         // 计算玩家在本次移动后的体型（包含即将增长的部分）
-        let player_length = self.projected_length(&self.player.snake, player_effect.growth_amount);
+        let player_length = self.player.projected_length(player_effect.growth_amount);
 
         // 遍历所有 AI，检查是否有头撞头
         for (enemy_index, plan) in enemy_plans.iter().enumerate() {
@@ -232,8 +221,7 @@ impl GameState {
             }
 
             // 计算该 AI 在本次移动后的体型
-            let enemy_length =
-                self.projected_length(&self.enemies[enemy_index].snake, plan.growth_amount);
+            let enemy_length = self.enemies[enemy_index].projected_length(plan.growth_amount);
 
             // 根据体型比较决定生死
             if player_length > enemy_length {
@@ -265,14 +253,10 @@ impl GameState {
                 }
 
                 // 计算两条 AI 的体型
-                let enemy_length = self.projected_length(
-                    &self.enemies[enemy_index].snake,
-                    enemy_plans[enemy_index].growth_amount,
-                );
-                let other_length = self.projected_length(
-                    &self.enemies[other_index].snake,
-                    enemy_plans[other_index].growth_amount,
-                );
+                let enemy_length = self.enemies[enemy_index]
+                    .projected_length(enemy_plans[enemy_index].growth_amount);
+                let other_length = self.enemies[other_index]
+                    .projected_length(enemy_plans[other_index].growth_amount);
 
                 // 根据体型比较决定生死
                 if enemy_length > other_length {
@@ -335,7 +319,7 @@ impl GameState {
         self.occupies_with_tail_rules(
             self.player.body(),
             position,
-            self.snake_grows(&self.player.snake, growth_amount),
+            self.player.grows(growth_amount),
         )
     }
 
@@ -352,11 +336,7 @@ impl GameState {
             .map(|plan| plan.growth_amount)
             .unwrap_or(0);
 
-        self.occupies_with_tail_rules(
-            enemy.body(),
-            position,
-            self.snake_grows(&enemy.snake, growth_amount),
-        )
+        self.occupies_with_tail_rules(enemy.body(), position, enemy.grows(growth_amount))
     }
 
     /// 按配置数量补齐所有物品。
@@ -425,40 +405,6 @@ impl GameState {
 
         if effect.hits_bomb {
             self.remove_bomb(position);
-        }
-    }
-
-    /// 计算某条蛇在本次前进中是否会增长。
-    fn snake_grows(&self, snake: &Snake, growth_amount: u16) -> bool {
-        snake.pending_growth > 0 || growth_amount > 0
-    }
-
-    /// 计算蛇在本次移动结算后会表现出的体型长度。
-    fn projected_length(&self, snake: &Snake, growth_amount: u16) -> usize {
-        snake.body.len() + usize::from(self.snake_grows(snake, growth_amount))
-    }
-
-    /// 推进一条蛇，并根据成长值决定是否保留尾巴。
-    ///
-    /// 蛇身增长的实现采用"延迟增长"机制：
-    /// - 吃到食物时，`pending_growth` 记录待增长的节数
-    /// - 每次移动时，如果 `pending_growth > 0`，则不移除尾巴，并递减计数
-    /// - 这样蛇会逐渐变长，而不是一次性增长
-    ///
-    /// # 参数
-    /// - `snake`: 要推进的蛇（可变引用）
-    /// - `next_head`: 新蛇头的位置
-    /// - `growth_amount`: 本次移动带来的额外增长节数（如吃到食物）
-    /// - `score_gain`: 本次移动带来的分数增益
-    fn advance_snake(snake: &mut Snake, next_head: Position, growth_amount: u16, score_gain: u32) {
-        snake.body.push_back(next_head);
-        snake.score += score_gain;
-
-        let total_growth = snake.pending_growth.saturating_add(growth_amount);
-        if total_growth > 0 {
-            snake.pending_growth = total_growth.saturating_sub(1);
-        } else {
-            snake.body.pop_front();
         }
     }
 

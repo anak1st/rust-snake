@@ -4,7 +4,7 @@ use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::game::{Direction as SnakeDirection, EnemySnake, GameState, RunState};
+use crate::game::{Direction as SnakeDirection, GameState, RunState, Snake};
 
 use super::style::{MAIN_BORDER_COLOR, MUTED_COLOR, TEXT_COLOR, style_with_color, styled_block};
 
@@ -176,7 +176,7 @@ fn help_text(state: RunState) -> &'static str {
     }
 }
 
-fn format_enemy_directions(enemies: &[EnemySnake], no_color: bool) -> Vec<Span<'static>> {
+fn format_enemy_directions(enemies: &[Snake], no_color: bool) -> Vec<Span<'static>> {
     if enemies.is_empty() {
         return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
     }
@@ -200,7 +200,7 @@ fn format_enemy_directions(enemies: &[EnemySnake], no_color: bool) -> Vec<Span<'
     spans
 }
 
-fn format_enemy_scores(enemies: &[EnemySnake], no_color: bool) -> Vec<Span<'static>> {
+fn format_enemy_scores(enemies: &[Snake], no_color: bool) -> Vec<Span<'static>> {
     if enemies.is_empty() {
         return vec![Span::styled("-", style_with_color(MUTED_COLOR, no_color))];
     }

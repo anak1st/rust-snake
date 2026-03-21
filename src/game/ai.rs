@@ -5,10 +5,10 @@ use rand::Rng;
 use crate::config::game::AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT;
 
 use super::{
-    Direction, EnemyPlan, EnemySnake, GameState, NavigationDecision, Position, SnakeAppearance,
+    Direction, EnemyPlan, GameState, NavigationDecision, Position, Snake, SnakeAppearance,
 };
 
-impl EnemySnake {
+impl Snake {
     /// 为当前 AI 计算下一步移动意图。
     ///
     /// AI 的状态与决策都归属于蛇自身，`GameState` 只提供棋盘规则、
@@ -31,9 +31,10 @@ impl EnemySnake {
 
     /// 应用本次规划得到的导航状态。
     pub(super) fn apply_navigation(&mut self, navigation: NavigationDecision) {
-        self.snake.direction = navigation.direction;
-        self.random_walk_steps = navigation.random_walk_steps;
-        self.random_walk_direction = navigation.random_walk_direction;
+        self.direction = navigation.direction;
+        let ai_state = self.ai_state_mut();
+        ai_state.random_walk_steps = navigation.random_walk_steps;
+        ai_state.random_walk_direction = navigation.random_walk_direction;
     }
 
     /// 为 AI 敌蛇选择下一步的移动方向。
@@ -51,13 +52,14 @@ impl EnemySnake {
     /// 返回包含方向、随机漫步步数和方向的导航决策
     fn choose_direction(&self, game: &GameState) -> NavigationDecision {
         // 如果正在随机漫步，尝试继续沿当前方向走
-        if self.random_walk_steps > 0 {
-            if let Some(walk_dir) = self.random_walk_direction {
+        let ai_state = self.ai_state();
+        if ai_state.random_walk_steps > 0 {
+            if let Some(walk_dir) = ai_state.random_walk_direction {
                 let next = game.next_position(self.head(), walk_dir);
                 if game.enemy_step_is_safe(self, next) {
                     return NavigationDecision {
                         direction: walk_dir,
-                        random_walk_steps: self.random_walk_steps.saturating_sub(1),
+                        random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
                         random_walk_direction: Some(walk_dir),
                     };
                 }
@@ -67,7 +69,7 @@ impl EnemySnake {
             let walk_dir = self.random_walk_direction(game);
             return NavigationDecision {
                 direction: walk_dir,
-                random_walk_steps: self.random_walk_steps.saturating_sub(1),
+                random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
                 random_walk_direction: Some(walk_dir),
             };
         }
@@ -202,7 +204,7 @@ impl GameState {
     ///
     /// # 返回值
     /// 如果位置安全则返回 `true`
-    pub(super) fn enemy_step_is_safe(&self, enemy: &EnemySnake, next: Position) -> bool {
+    pub(super) fn enemy_step_is_safe(&self, enemy: &Snake, next: Position) -> bool {
         if self.hit_wall(next) {
             return false;
         }
@@ -222,7 +224,7 @@ impl GameState {
                         && self.enemy_occupies_position(other_index, next, &[])
                 });
 
-        !hits_non_wall_hazard || !EnemySnake::avoids_non_wall_hazard()
+        !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。
@@ -233,13 +235,13 @@ impl GameState {
     /// # 参数
     /// - `enemy_index`: 需要重生的 AI 索引
     pub(super) fn respawn_enemy(&mut self, enemy_index: usize) {
-        let score = self.enemies[enemy_index].snake.score;
+        let score = self.enemies[enemy_index].score;
 
         if let Some(replacement) = self.try_spawn_enemy_for_slot(enemy_index) {
             self.enemies[enemy_index] = replacement;
-            self.enemies[enemy_index].snake.score = score;
+            self.enemies[enemy_index].score = score;
         } else {
-            self.enemies[enemy_index].snake.score = score;
+            self.enemies[enemy_index].score = score;
         }
     }
 
@@ -253,13 +255,13 @@ impl GameState {
     ///
     /// # 返回值
     /// 成功时返回生成的 AI 蛇，失败时返回 `None`
-    pub(super) fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<EnemySnake> {
+    pub(super) fn try_spawn_enemy_for_slot(&self, slot: usize) -> Option<Snake> {
         if self.width < 3 && self.height < 3 {
             return None;
         }
 
         for (body, direction) in self.corner_spawn_candidates(slot) {
-            let enemy = EnemySnake::new(body, direction, SnakeAppearance::for_slot(slot));
+            let enemy = Snake::new_ai(body, direction, SnakeAppearance::for_slot(slot));
             if self.enemy_spawn_is_valid(enemy.body()) {
                 return Some(enemy);
             }
@@ -345,7 +347,7 @@ impl GameState {
     ///
     /// # 返回值
     /// 成功时返回生成的 AI 蛇，失败时返回 `None`
-    fn try_spawn_enemy(&self, slot: usize) -> Option<EnemySnake> {
+    fn try_spawn_enemy(&self, slot: usize) -> Option<Snake> {
         if self.width < 3 && self.height < 3 {
             return None;
         }
@@ -353,7 +355,7 @@ impl GameState {
         for _ in 0..256 {
             let (body, direction) = Self::spawn_enemy_snake(self.width, self.height);
             if self.enemy_spawn_is_valid(&body) {
-                return Some(EnemySnake::new(
+                return Some(Snake::new_ai(
                     body,
                     direction,
                     SnakeAppearance::for_slot(slot),
