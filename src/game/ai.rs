@@ -100,7 +100,7 @@ impl Snake {
             return Self::steady_navigation(direction);
         }
 
-        // 如果当前方向既安全又留有足够活动空间，优先保持方向。
+        // 如果当前方向既安全又留有足够活动空间，优先保持方向
         let next = game.next_position(self.head(), self.direction());
         if game.snake_step_is_safe(self, next) && game.snake_step_has_adequate_space(self, next) {
             return Self::steady_navigation(self.direction());
@@ -119,10 +119,12 @@ impl Snake {
             return Self::steady_navigation(direction);
         }
 
+        // 尝试任何即时安全的方向
         if game.snake_step_is_safe(self, next) {
             return Self::steady_navigation(self.direction());
         }
 
+        // 最后尝试非掉头的安全方向
         let safe_dirs = [
             Direction::Up,
             Direction::Down,
@@ -225,29 +227,33 @@ impl Snake {
 impl GameState {
     /// 判断一条蛇按当前环境前进一步是否安全（不会立即撞死）。
     ///
-    /// 安全性检查包括：
-    /// - 是否撞墙
-    /// - 是否撞到自身（考虑尾巴移动规则）
-    /// - 是否撞到炸弹或其他蛇
-    ///
     /// 对于非墙类危险，AI 有一定概率不会主动规避，
     /// 这增加了游戏的不确定性和可玩性。
     ///
+    /// 处理步骤：
+    /// - 检查是否撞墙
+    /// - 检查蛇是否存活
+    /// - 检查是否撞到自身或尸块（考虑尾巴移动规则）
+    /// - 检查是否撞到炸弹或其他蛇（有概率不规避）
+    ///
     /// # 参数
-    /// - `snake`: 当前执行决策的蛇，自身碰撞和“跳过自己”都基于这个引用判断
+    /// - `snake`: 当前执行决策的蛇，自身碰撞和"跳过自己"都基于这个引用判断
     /// - `next`: 待检查的下一步位置
     ///
     /// # 返回值
     /// 如果位置安全则返回 `true`
     pub(super) fn snake_step_is_safe(&self, snake: &Snake, next: Position) -> bool {
+        // 检查是否撞墙
         if self.hit_wall(next) {
             return false;
         }
 
+        // 检查蛇是否存活
         if !snake.is_alive() {
             return false;
         }
 
+        // 检查是否撞到自身或尸块
         let effect = self.tile_effect(next);
         let my_projected_length = snake.projected_length(effect.growth_amount);
 
@@ -257,6 +263,7 @@ impl GameState {
             return false;
         }
 
+        // 检查是否撞到炸弹或其他蛇（有概率不规避）
         let hits_non_wall_hazard = self.bombs.contains(&next)
             || self.other_snakes_occupy_position(snake, next)
             || self.other_snake_can_win_head_on(snake, next, my_projected_length);
@@ -354,22 +361,33 @@ impl GameState {
     }
 
     /// 统计一条蛇完成指定落点后，蛇头仍能抵达的活动格数量。
+    ///
+    /// 处理步骤：
+    /// - 初始化阻挡数组，标记所有不可通行的格子
+    /// - 标记尸块和炸弹为阻挡
+    /// - 标记其他蛇的蛇身为阻挡
+    /// - 计算投影蛇身并标记为阻挡
+    /// - 使用 flood fill 统计可达空间
     fn reachable_space_after_step(
         &self,
         snake: &Snake,
         next: Position,
         growth_amount: u16,
     ) -> usize {
+        // 初始化阻挡数组
         let mut blocked = vec![false; usize::from(self.width) * usize::from(self.height)];
 
+        // 标记尸块为阻挡
         for corpse in &self.corpse_pieces {
             blocked[self.board_index(corpse.position())] = true;
         }
 
+        // 标记炸弹为阻挡
         for bomb in &self.bombs {
             blocked[self.board_index(*bomb)] = true;
         }
 
+        // 标记玩家蛇身为阻挡
         if self.player.is_alive() && !std::ptr::eq(&self.player, snake) {
             self.mark_body_as_blocked(
                 &mut blocked,
@@ -378,6 +396,7 @@ impl GameState {
             );
         }
 
+        // 标记敌蛇蛇身为阻挡
         for enemy in &self.enemies {
             if enemy.is_alive() && !std::ptr::eq(enemy, snake) {
                 self.mark_body_as_blocked(
@@ -388,6 +407,7 @@ impl GameState {
             }
         }
 
+        // 计算投影蛇身并标记为阻挡（排除新蛇头）
         let projected_body = self.projected_body_after_step(snake, next, growth_amount);
         for segment in projected_body
             .iter()
@@ -396,6 +416,7 @@ impl GameState {
             blocked[self.board_index(*segment)] = true;
         }
 
+        // 使用 flood fill 统计可达空间
         let start = self.board_index(next);
         blocked[start] = false;
 
@@ -487,9 +508,9 @@ impl GameState {
 
     /// 按"更接近目标优先，其余方向补齐"的顺序返回方向列表。
     ///
-    /// 首先添加能减少与目标距离的方向，
-    /// 然后按固定顺序补充剩余方向。
-    /// 这确保 AI 优先选择朝向食物的方向。
+    /// 处理步骤：
+    /// - 根据目标位置添加能减少距离的方向
+    /// - 补充剩余方向以覆盖所有可能性
     ///
     /// # 参数
     /// - `origin`: 起始位置
@@ -500,6 +521,7 @@ impl GameState {
     fn preferred_directions(&self, origin: Position, target: Position) -> Vec<Direction> {
         let mut directions = Vec::with_capacity(4);
 
+        // 添加能减少与目标距离的方向
         if target.x > origin.x {
             directions.push(Direction::Right);
         } else if target.x < origin.x {
@@ -512,6 +534,7 @@ impl GameState {
             directions.push(Direction::Up);
         }
 
+        // 补充剩余方向
         for direction in [
             Direction::Up,
             Direction::Down,

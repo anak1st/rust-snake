@@ -32,9 +32,12 @@ impl GameState {
             return;
         }
 
+        // 清空本帧事件记录
         self.recent_events.clear();
+        // 推进尸块腐化并处理敌蛇重生
         self.advance_corpse_pieces();
 
+        // 解析玩家控制并计算下一步位置
         let player_plan = if self.player.is_ai_controlled() {
             Some(self.player.plan_ai_move(self))
         } else {
@@ -48,12 +51,14 @@ impl GameState {
             .map(SnakePlan::tile_effect)
             .unwrap_or_else(|| self.tile_effect(player_next));
 
+        // 为所有存活的敌蛇规划下一步移动
         let mut enemy_plans = Vec::with_capacity(self.enemies.len());
         for enemy_index in 0..self.enemies.len() {
             let enemy = &self.enemies[enemy_index];
             enemy_plans.push(enemy.is_alive().then(|| enemy.plan_ai_move(self)));
         }
 
+        // 检测玩家和敌蛇的碰撞情况
         let player_grows = self.player.grows(player_effect.growth_amount);
         let mut player_dies = self.player_hits_hazard_or_self(player_next, player_effect)
             || self.player_hits_enemy_body(player_next, &enemy_plans);
@@ -70,6 +75,7 @@ impl GameState {
             })
             .collect::<Vec<_>>();
 
+        // 结算头撞头碰撞
         self.resolve_player_enemy_head_on(
             player_next,
             player_effect,
@@ -79,12 +85,14 @@ impl GameState {
         );
         self.resolve_enemy_head_on(&enemy_plans, &mut enemy_dies);
 
+        // 将碰撞结果写入规划
         for (plan, dies) in enemy_plans.iter_mut().zip(enemy_dies.iter().copied()) {
             if let Some(plan) = plan {
                 plan.crashes = dies;
             }
         }
 
+        // 保存碰撞前的蛇身用于生成尸块
         let player_body_before_crash = self.player.body().clone();
         let enemy_bodies_before_crash = self
             .enemies
@@ -92,10 +100,12 @@ impl GameState {
             .map(|enemy| enemy.body().clone())
             .collect::<Vec<_>>();
 
+        // 推进存活的玩家蛇
         if !player_dies {
             self.advance_player(player_next, player_effect, player_plan);
         }
 
+        // 推进存活的敌蛇或处理死亡
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             let Some(plan) = plan else {
                 continue;
@@ -115,17 +125,24 @@ impl GameState {
             }
         }
 
+        // 处理玩家死亡
         if player_dies {
             self.begin_player_corpse(&player_body_before_crash, self.player.appearance);
             self.player.remove_from_board();
             self.state = RunState::GameOver;
         }
 
+        // 补充物品并递增计数器
         self.refill_items();
         self.tick_count += 1;
     }
 
     /// 让玩家蛇前进一步，并处理吃到物品后的增长。
+    ///
+    /// 处理步骤：
+    /// - 应用 AI 导航结果（如果有）
+    /// - 推进蛇身并处理增长
+    /// - 消费格子上的物品
     fn advance_player(&mut self, next_head: Position, effect: TileEffect, plan: Option<SnakePlan>) {
         if let Some(plan) = plan {
             self.player.apply_navigation(plan.navigation);
@@ -136,6 +153,11 @@ impl GameState {
     }
 
     /// 让指定 AI 前进一步，并处理吃到物品后的增长。
+    ///
+    /// 处理步骤：
+    /// - 应用 AI 导航结果
+    /// - 推进蛇身并处理增长
+    /// - 消费格子上的物品
     fn advance_enemy(&mut self, enemy_index: usize, plan: SnakePlan) {
         let enemy = &mut self.enemies[enemy_index];
         enemy.apply_navigation(plan.navigation);
@@ -218,6 +240,11 @@ impl GameState {
     }
 
     /// 结算玩家与 AI 的头撞头规则：体型较小的一方死亡，同体型同死。
+    ///
+    /// 处理步骤：
+    /// - 计算玩家当前体型
+    /// - 遍历所有敌蛇，检查是否与玩家头撞头
+    /// - 根据体型比较决定死亡方
     pub(super) fn resolve_player_enemy_head_on(
         &self,
         player_next: Position,
@@ -251,6 +278,11 @@ impl GameState {
     }
 
     /// 结算所有 AI 之间的头撞头规则：体型较小的一方死亡，同体型同死。
+    ///
+    /// 处理步骤：
+    /// - 遍历所有敌蛇对
+    /// - 检查是否头撞头
+    /// - 根据体型比较决定死亡方
     fn resolve_enemy_head_on(&self, enemy_plans: &[Option<SnakePlan>], enemy_dies: &mut [bool]) {
         for enemy_index in 0..enemy_plans.len() {
             let Some(enemy_plan) = enemy_plans[enemy_index] else {
@@ -345,6 +377,11 @@ impl GameState {
     }
 
     /// 按配置数量补齐所有物品。
+    ///
+    /// 处理步骤：
+    /// - 补齐普通食物
+    /// - 补齐超级食物
+    /// - 补齐炸弹
     pub(super) fn refill_items(&mut self) {
         self.refill_food_positions(FOOD_COUNT);
         self.refill_super_food_positions(SUPER_FOOD_COUNT);
@@ -352,6 +389,8 @@ impl GameState {
     }
 
     /// 按目标数量补齐普通食物。
+    ///
+    /// 循环生成普通食物直到达到目标数量或棋盘已满。
     fn refill_food_positions(&mut self, target: usize) {
         while self.foods.len() < target && self.empty_cell_count() > 0 {
             self.foods.push(self.random_empty_position());
@@ -359,6 +398,8 @@ impl GameState {
     }
 
     /// 按目标数量补齐超级食物。
+    ///
+    /// 循环生成超级食物直到达到目标数量或棋盘已满。
     fn refill_super_food_positions(&mut self, target: usize) {
         while self.super_foods.len() < target && self.empty_cell_count() > 0 {
             self.super_foods.push(self.random_empty_position());
@@ -366,6 +407,8 @@ impl GameState {
     }
 
     /// 按目标数量补齐炸弹。
+    ///
+    /// 循环生成炸弹直到达到目标数量或棋盘已满。
     fn refill_bomb_positions(&mut self, target: usize) {
         while self.bombs.len() < target && self.empty_cell_count() > 0 {
             self.bombs.push(self.random_empty_position());
@@ -401,13 +444,19 @@ impl GameState {
     }
 
     /// 从棋盘上消费一个格子效果。
+    ///
+    /// 根据效果类型移除对应的物品：
+    /// - 普通食物或超级食物：从棋盘上移除
+    /// - 炸弹：从棋盘上移除（虽然吃到炸弹会死，但仍需清理）
     fn consume_tile(&mut self, position: Position, effect: TileEffect) {
+        // 移除被吃掉的食物
         match effect.consumable {
             Some(ConsumableKind::Food) => self.remove_food(position),
             Some(ConsumableKind::SuperFood) => self.remove_super_fruit(position),
             None => {}
         }
 
+        // 移除被触碰的炸弹
         if effect.hits_bomb {
             self.remove_bomb(position);
         }
@@ -433,6 +482,11 @@ impl GameState {
     }
 
     /// 将一条蛇的整段身体拆成独立尸块。
+    ///
+    /// 处理步骤：
+    /// - 分配新的尸块组 ID
+    /// - 为每个身体段创建独立的尸块，设置腐化时间
+    /// - 如果是敌蛇，记录重生依赖
     fn begin_corpse(
         &mut self,
         body: &VecDeque<Position>,
@@ -443,9 +497,11 @@ impl GameState {
             return;
         }
 
+        // 分配尸块组 ID
         let group_id = self.next_corpse_group_id;
         self.next_corpse_group_id += 1;
 
+        // 为每个身体段创建独立尸块
         let body_len = body.len();
         for (index, &segment) in body.iter().enumerate() {
             let is_head = index + 1 == body_len;
@@ -467,6 +523,7 @@ impl GameState {
             ));
         }
 
+        // 记录敌蛇重生依赖
         if let Some(enemy_index) = enemy_index {
             self.pending_enemy_respawns.push(PendingEnemyRespawn {
                 group_id,
@@ -476,10 +533,16 @@ impl GameState {
     }
 
     /// 推进所有尸块的独立腐化过程。
+    ///
+    /// 处理步骤：
+    /// - 移除已腐化的尸块并记录位置
+    /// - 在腐化位置生成遗留食物
+    /// - 检查是否有敌蛇可以重生
     fn advance_corpse_pieces(&mut self) {
         let current_tick = self.tick_count;
         let mut decayed_positions = Vec::new();
 
+        // 移除已腐化的尸块
         self.corpse_pieces.retain(|piece| {
             if piece.should_decay(current_tick) {
                 decayed_positions.push(piece.position());
@@ -489,10 +552,12 @@ impl GameState {
             }
         });
 
+        // 在腐化位置生成遗留食物
         for position in decayed_positions {
             self.drop_legacy_at(position);
         }
 
+        // 检查敌蛇重生条件
         let mut pending_index = 0;
         while pending_index < self.pending_enemy_respawns.len() {
             let pending = self.pending_enemy_respawns[pending_index];
@@ -517,7 +582,10 @@ impl GameState {
     }
 
     /// 将一个尸块所在格转成普通食物。
+    ///
+    /// 只有当该位置未被其他物品或蛇身占用时才生成遗留食物。
     fn drop_legacy_at(&mut self, position: Position) {
+        // 检查位置是否可用
         if !self.foods.contains(&position)
             && !self.legacy_foods.contains(&position)
             && !self.super_foods.contains(&position)
@@ -530,6 +598,7 @@ impl GameState {
                 .any(|enemy| enemy.body().contains(&position))
             && !self.corpse_piece_occupies_position(position)
         {
+            // 生成遗留食物并记录事件
             self.legacy_foods.push(position);
             self.recent_events
                 .push(super::GameEvent::CorpseFoodCreated(position));
@@ -537,18 +606,24 @@ impl GameState {
     }
 
     /// 从棋盘上移除一颗被吃掉的普通食物。
+    ///
+    /// 优先从常规食物列表中查找并移除，若未找到则尝试从遗留食物列表中移除。
     fn remove_food(&mut self, position: Position) {
+        // 优先从常规食物列表移除
         if let Some(index) = self.foods.iter().position(|food| *food == position) {
             self.foods.swap_remove(index);
             return;
         }
 
+        // 尝试从遗留食物列表移除
         if let Some(index) = self.legacy_foods.iter().position(|food| *food == position) {
             self.legacy_foods.swap_remove(index);
         }
     }
 
     /// 从棋盘上移除一颗被吃掉的超级果实。
+    ///
+    /// 从超级食物列表中查找并移除指定位置的果实。
     fn remove_super_fruit(&mut self, position: Position) {
         if let Some(index) = self.super_foods.iter().position(|fruit| *fruit == position) {
             self.super_foods.swap_remove(index);
@@ -556,6 +631,8 @@ impl GameState {
     }
 
     /// 从棋盘上移除一个炸弹。
+    ///
+    /// 从炸弹列表中查找并移除指定位置的炸弹。
     fn remove_bomb(&mut self, position: Position) {
         if let Some(index) = self.bombs.iter().position(|bomb| *bomb == position) {
             self.bombs.swap_remove(index);
@@ -563,6 +640,8 @@ impl GameState {
     }
 
     /// 返回当前仍可用于生成物品的空格数。
+    ///
+    /// 计算方式：棋盘总面积 - 蛇身占用的格子 - 物品占用的格子。
     fn empty_cell_count(&self) -> usize {
         let area = self.width as usize * self.height as usize;
         let occupied_by_snakes = self.player.body().len()
