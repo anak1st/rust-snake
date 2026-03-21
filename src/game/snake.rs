@@ -152,6 +152,11 @@ impl Snake {
         }
     }
 
+    /// 返回当前是否由 AI 控制。
+    pub(super) fn is_ai_controlled(&self) -> bool {
+        matches!(self.control, SnakeControl::Ai(_))
+    }
+
     /// 返回当前 AI 状态；如果不是 AI 控制则视为逻辑错误。
     pub(super) fn ai_state(&self) -> &AiState {
         match &self.control {

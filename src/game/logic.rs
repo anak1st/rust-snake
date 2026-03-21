@@ -7,16 +7,16 @@ use crate::config::game::{
     SUPER_FOOD_GROWTH_AMOUNT, SUPER_FOOD_SCORE_GAIN,
 };
 
-use super::{ConsumableKind, Direction, EnemyPlan, GameState, Position, RunState, TileEffect};
+use super::{ConsumableKind, Direction, GameState, Position, RunState, SnakePlan, TileEffect};
 
 impl GameState {
     /// 推进一帧游戏逻辑，处理玩家、AI、食物和碰撞。
     ///
     /// tick 是核心逻辑推进函数，处理流程分为以下几个阶段：
     ///
-    /// - **方向同步**：将 pending_direction 同步为实际生效的 direction
+    /// - **控制解析**：根据蛇的控制模式决定本帧实际方向
     /// - **玩家移动计算**：计算玩家下一步位置和格子效果
-    /// - **AI 移动规划**：为每条 AI 预规划下一步移动
+    /// - **敌蛇 AI 规划**：为每条敌蛇预规划下一步移动
     /// - **碰撞检测**：判断玩家和 AI 是否会撞死
     /// - **头撞头结算**：处理玩家与 AI、AI 与 AI 的头撞头情况
     /// - **状态更新**：推进存活的蛇，重生死亡的 AI
@@ -29,17 +29,24 @@ impl GameState {
 
         self.recent_events.clear();
 
-        // 方向同步
-        self.player.sync_control_direction();
-
         // 玩家移动计算
-        let player_next = self.next_position(self.player_head(), self.player.direction());
-        let player_effect = self.tile_effect(player_next);
+        let player_plan = if self.player.is_ai_controlled() {
+            Some(self.player.plan_ai_move(self))
+        } else {
+            self.player.sync_control_direction();
+            None
+        };
+        let player_next = player_plan
+            .map(|plan| plan.next_head)
+            .unwrap_or_else(|| self.next_position(self.player_head(), self.player.direction()));
+        let player_effect = player_plan
+            .map(SnakePlan::tile_effect)
+            .unwrap_or_else(|| self.tile_effect(player_next));
 
         // AI 移动规划（所有 AI 的规划在碰撞判断之前完成，确保公平性）
         let mut enemy_plans = Vec::with_capacity(self.enemies.len());
         for enemy_index in 0..self.enemies.len() {
-            enemy_plans.push(self.enemies[enemy_index].plan_move(self));
+            enemy_plans.push(self.enemies[enemy_index].plan_ai_move(self));
         }
 
         // 碰撞检测
@@ -84,7 +91,7 @@ impl GameState {
 
         // 推进存活的玩家
         if !player_dies {
-            self.advance_player(player_next, player_effect);
+            self.advance_player(player_next, player_effect, player_plan);
         }
 
         // 推进或重生 AI
@@ -112,14 +119,17 @@ impl GameState {
     }
 
     /// 让玩家蛇前进一步，并处理吃到物品后的增长。
-    fn advance_player(&mut self, next_head: Position, effect: TileEffect) {
+    fn advance_player(&mut self, next_head: Position, effect: TileEffect, plan: Option<SnakePlan>) {
+        if let Some(plan) = plan {
+            self.player.apply_navigation(plan.navigation);
+        }
         self.player
             .advance(next_head, effect.growth_amount, effect.score_gain);
         self.consume_tile(next_head, effect);
     }
 
     /// 让指定 AI 前进一步，并处理吃到物品后的增长。
-    fn advance_enemy(&mut self, enemy_index: usize, plan: EnemyPlan) {
+    fn advance_enemy(&mut self, enemy_index: usize, plan: SnakePlan) {
         let enemy = &mut self.enemies[enemy_index];
         enemy.apply_navigation(plan.navigation);
         enemy.advance(plan.next_head, plan.growth_amount, plan.score_gain);
@@ -146,14 +156,14 @@ impl GameState {
     }
 
     /// 判断玩家下一步是否会撞上敌蛇身体；头撞头单独处理。
-    fn player_hits_enemy_body(&self, next_head: Position, enemy_plans: &[EnemyPlan]) -> bool {
+    fn player_hits_enemy_body(&self, next_head: Position, enemy_plans: &[SnakePlan]) -> bool {
         self.enemies.iter().enumerate().any(|(enemy_index, _)| {
             self.enemy_occupies_position(enemy_index, next_head, enemy_plans)
         })
     }
 
     /// 判断指定 AI 下一步是否会撞上墙、炸弹或自身。
-    fn enemy_hits_hazard_or_self(&self, enemy_index: usize, enemy_plans: &[EnemyPlan]) -> bool {
+    fn enemy_hits_hazard_or_self(&self, enemy_index: usize, enemy_plans: &[SnakePlan]) -> bool {
         let enemy = &self.enemies[enemy_index];
         let plan = enemy_plans[enemy_index];
 
@@ -172,7 +182,7 @@ impl GameState {
         enemy_index: usize,
         player_grows: bool,
         player_next: Position,
-        enemy_plans: &[EnemyPlan],
+        enemy_plans: &[SnakePlan],
     ) -> bool {
         let next_head = enemy_plans[enemy_index].next_head;
         next_head != player_next
@@ -180,7 +190,7 @@ impl GameState {
     }
 
     /// 判断指定 AI 下一步是否会撞上其他 AI 身体；头撞头单独处理。
-    fn enemy_hits_enemy_body(&self, enemy_index: usize, enemy_plans: &[EnemyPlan]) -> bool {
+    fn enemy_hits_enemy_body(&self, enemy_index: usize, enemy_plans: &[SnakePlan]) -> bool {
         let plan = enemy_plans[enemy_index];
 
         self.enemies.iter().enumerate().any(|(other_index, _)| {
@@ -206,7 +216,7 @@ impl GameState {
         &self,
         player_next: Position,
         player_effect: TileEffect,
-        enemy_plans: &[EnemyPlan],
+        enemy_plans: &[SnakePlan],
         player_dies: &mut bool,
         enemy_dies: &mut [bool],
     ) {
@@ -242,7 +252,7 @@ impl GameState {
     ///
     /// 使用双重循环检查所有 AI 对，避免重复比较。
     /// 只比较 `enemy_index < other_index` 的对，确保每对只处理一次。
-    fn resolve_enemy_head_on(&self, enemy_plans: &[EnemyPlan], enemy_dies: &mut [bool]) {
+    fn resolve_enemy_head_on(&self, enemy_plans: &[SnakePlan], enemy_dies: &mut [bool]) {
         // 外层循环：遍历每条 AI
         for enemy_index in 0..enemy_plans.len() {
             // 内层循环：只与索引更大的 AI 比较，避免重复
@@ -328,7 +338,7 @@ impl GameState {
         &self,
         enemy_index: usize,
         position: Position,
-        enemy_plans: &[EnemyPlan],
+        enemy_plans: &[SnakePlan],
     ) -> bool {
         let enemy = &self.enemies[enemy_index];
         let growth_amount = enemy_plans

@@ -260,7 +260,7 @@ fn legacy_food_does_not_reduce_normal_food_refill() {
 /// 验证头撞头时体型较小的一方死亡。
 fn smaller_snake_loses_head_on() {
     let game = GameState::with_board_size(16, 8);
-    let enemy_plans = vec![super::EnemyPlan {
+    let enemy_plans = vec![super::SnakePlan {
         next_head: Position { x: 6, y: 4 },
         consumable: None,
         growth_amount: 0,

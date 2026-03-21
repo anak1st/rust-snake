@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::config::game::AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT;
 
 use super::{
-    Direction, EnemyPlan, GameState, NavigationDecision, Position, Snake, SnakeAppearance,
+    Direction, GameState, NavigationDecision, Position, Snake, SnakeAppearance, SnakePlan,
 };
 
 impl Snake {
@@ -13,12 +13,12 @@ impl Snake {
     ///
     /// AI 的状态与决策都归属于蛇自身，`GameState` 只提供棋盘规则、
     /// 占用判断与物品分布等环境信息。
-    pub(super) fn plan_move(&self, game: &GameState) -> EnemyPlan {
+    pub(super) fn plan_ai_move(&self, game: &GameState) -> SnakePlan {
         let navigation = self.choose_direction(game);
         let next_head = game.next_position(self.head(), navigation.direction);
         let effect = game.tile_effect(next_head);
 
-        EnemyPlan {
+        SnakePlan {
             next_head,
             consumable: effect.consumable,
             growth_amount: effect.growth_amount,
@@ -56,7 +56,7 @@ impl Snake {
         if ai_state.random_walk_steps > 0 {
             if let Some(walk_dir) = ai_state.random_walk_direction {
                 let next = game.next_position(self.head(), walk_dir);
-                if game.enemy_step_is_safe(self, next) {
+                if game.snake_step_is_safe(self, next) {
                     return NavigationDecision {
                         direction: walk_dir,
                         random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
@@ -97,14 +97,14 @@ impl Snake {
             }
 
             let next = game.next_position(self.head(), direction);
-            if game.enemy_step_is_safe(self, next) {
+            if game.snake_step_is_safe(self, next) {
                 return Self::steady_navigation(direction);
             }
         }
 
         // 保持当前方向（如果安全）
         let next = game.next_position(self.head(), self.direction());
-        if game.enemy_step_is_safe(self, next) {
+        if game.snake_step_is_safe(self, next) {
             return Self::steady_navigation(self.direction());
         }
 
@@ -118,7 +118,7 @@ impl Snake {
         .into_iter()
         .filter(|&direction| {
             !self.direction().is_opposite(direction)
-                && game.enemy_step_is_safe(self, game.next_position(self.head(), direction))
+                && game.snake_step_is_safe(self, game.next_position(self.head(), direction))
         });
 
         if let Some(direction) = safe_dirs.into_iter().next() {
@@ -151,7 +151,7 @@ impl Snake {
             }
 
             let next = game.next_position(self.head(), direction);
-            if game.enemy_step_is_safe(self, next) {
+            if game.snake_step_is_safe(self, next) {
                 safe_directions.push(direction);
             }
         }
@@ -161,7 +161,7 @@ impl Snake {
         }
 
         let next = game.next_position(self.head(), self.direction());
-        if game.enemy_step_is_safe(self, next) {
+        if game.snake_step_is_safe(self, next) {
             return self.direction();
         }
 
@@ -188,43 +188,48 @@ impl Snake {
 }
 
 impl GameState {
-    /// 判断 AI 的下一步位置是否安全（不会立即撞死）。
+    /// 判断一条蛇按当前环境前进一步是否安全（不会立即撞死）。
     ///
     /// 安全性检查包括：
     /// - 是否撞墙
     /// - 是否撞到自身（考虑尾巴移动规则）
-    /// - 是否撞到炸弹、玩家或其他 AI
+    /// - 是否撞到炸弹或其他蛇
     ///
     /// 对于非墙类危险，AI 有一定概率不会主动规避，
     /// 这增加了游戏的不确定性和可玩性。
     ///
     /// # 参数
-    /// - `enemy`: 当前执行决策的 AI，自身碰撞和“跳过自己”都基于这个引用判断
+    /// - `snake`: 当前执行决策的蛇，自身碰撞和“跳过自己”都基于这个引用判断
     /// - `next`: 待检查的下一步位置
     ///
     /// # 返回值
     /// 如果位置安全则返回 `true`
-    pub(super) fn enemy_step_is_safe(&self, enemy: &Snake, next: Position) -> bool {
+    pub(super) fn snake_step_is_safe(&self, snake: &Snake, next: Position) -> bool {
         if self.hit_wall(next) {
             return false;
         }
 
-        if self.occupies_with_tail_rules(enemy.body(), next, false) {
+        if self.occupies_with_tail_rules(snake.body(), next, false) {
             return false;
         }
 
-        let hits_non_wall_hazard = self.bombs.contains(&next)
-            || self.player_occupies_position(next, 0)
+        let hits_non_wall_hazard =
+            self.bombs.contains(&next) || self.other_snakes_occupy_position(snake, next);
+
+        !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
+    }
+
+    /// 判断除当前蛇自身外，是否还有其他蛇占据指定位置。
+    fn other_snakes_occupy_position(&self, snake: &Snake, position: Position) -> bool {
+        (!std::ptr::eq(&self.player, snake) && self.player_occupies_position(position, 0))
             || self
                 .enemies
                 .iter()
                 .enumerate()
-                .any(|(other_index, other_enemy)| {
-                    !std::ptr::eq(other_enemy, enemy)
-                        && self.enemy_occupies_position(other_index, next, &[])
-                });
-
-        !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
+                .any(|(enemy_index, other_enemy)| {
+                    !std::ptr::eq(other_enemy, snake)
+                        && self.enemy_occupies_position(enemy_index, position, &[])
+                })
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。

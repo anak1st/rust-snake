@@ -68,7 +68,7 @@ struct NavigationDecision {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct EnemyPlan {
+struct SnakePlan {
     next_head: Position,
     consumable: Option<ConsumableKind>,
     growth_amount: u16,
@@ -90,6 +90,18 @@ struct TileEffect {
     growth_amount: u16,
     score_gain: u32,
     hits_bomb: bool,
+}
+
+impl SnakePlan {
+    /// 将规划中记录的格子效果还原为通用结算信息。
+    fn tile_effect(self) -> TileEffect {
+        TileEffect {
+            consumable: self.consumable,
+            growth_amount: self.growth_amount,
+            score_gain: self.score_gain,
+            hits_bomb: self.hits_bomb,
+        }
+    }
 }
 
 /// 游戏在最近一个逻辑 tick 中产生的事件。
@@ -232,6 +244,8 @@ impl GameState {
     }
 
     /// 更新玩家下一次移动方向，并忽略直接反向输入。
+    ///
+    /// 当玩家蛇当前不处于手动控制模式时，此调用不会产生效果。
     pub fn set_direction(&mut self, direction: Direction) {
         if self.player.direction().is_opposite(direction) {
             return;
