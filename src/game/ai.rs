@@ -209,14 +209,18 @@ impl GameState {
             return false;
         }
 
-        if self.occupies_with_tail_rules(snake.body(), next, false)
+        let effect = self.tile_effect(next);
+        let my_projected_length = snake.projected_length(effect.growth_amount);
+
+        if self.occupies_with_tail_rules(snake.body(), next, snake.grows(effect.growth_amount))
             || self.corpse_piece_occupies_position(next)
         {
             return false;
         }
 
-        let hits_non_wall_hazard =
-            self.bombs.contains(&next) || self.other_snakes_occupy_position(snake, next);
+        let hits_non_wall_hazard = self.bombs.contains(&next)
+            || self.other_snakes_occupy_position(snake, next)
+            || self.other_snake_can_win_head_on(snake, next, my_projected_length);
 
         !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
     }
@@ -235,6 +239,44 @@ impl GameState {
                         && !std::ptr::eq(other_enemy, snake)
                         && self.enemy_occupies_position(enemy_index, position, &[])
                 })
+    }
+
+    /// 判断是否有其他蛇能够在下一步争抢同一个头部位置，并在头撞头中不输。
+    fn other_snake_can_win_head_on(
+        &self,
+        snake: &Snake,
+        position: Position,
+        my_projected_length: usize,
+    ) -> bool {
+        let growth_amount = self.tile_effect(position).growth_amount;
+
+        (self.player.is_alive()
+            && !std::ptr::eq(&self.player, snake)
+            && self.snake_can_reach_position_next_tick(&self.player, position)
+            && self.player.projected_length(growth_amount) >= my_projected_length)
+            || self
+                .enemies
+                .iter()
+                .filter(|other_enemy| other_enemy.is_alive() && !std::ptr::eq(*other_enemy, snake))
+                .any(|other_enemy| {
+                    self.snake_can_reach_position_next_tick(other_enemy, position)
+                        && other_enemy.projected_length(growth_amount) >= my_projected_length
+                })
+    }
+
+    /// 判断一条蛇在不掉头的前提下，下一步是否有机会到达指定位置。
+    fn snake_can_reach_position_next_tick(&self, snake: &Snake, position: Position) -> bool {
+        [
+            Direction::Up,
+            Direction::Down,
+            Direction::Left,
+            Direction::Right,
+        ]
+        .into_iter()
+        .any(|direction| {
+            !snake.direction().is_opposite(direction)
+                && self.next_position(snake.head(), direction) == position
+        })
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。

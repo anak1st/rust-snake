@@ -472,3 +472,56 @@ fn smaller_snake_loses_head_on() {
     assert!(!player_dies);
     assert_eq!(enemy_dies, vec![true]);
 }
+
+#[test]
+/// 验证 AI 在自己本回合会增长时，不会误判尾巴格为安全并钻进自己身体。
+fn ai_does_not_step_into_own_tail_when_growth_keeps_tail_in_place() {
+    let mut game = GameState::with_board_size(12, 8);
+    game.foods = vec![Position { x: 4, y: 3 }];
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.clear();
+    game.player.body = VecDeque::from([
+        Position { x: 4, y: 3 },
+        Position { x: 4, y: 4 },
+        Position { x: 5, y: 4 },
+        Position { x: 5, y: 3 },
+    ]);
+    game.player.direction = Direction::Up;
+    game.player.pending_growth = 1;
+    game.player.set_ai_controlled(true);
+
+    let plan = game.player.plan_ai_move(&game);
+
+    assert_ne!(plan.next_head, Position { x: 4, y: 3 });
+}
+
+#[test]
+/// 验证 AI 不会去和更大的蛇争抢同一个下一步头部位置。
+fn ai_avoids_losing_head_on_cell() {
+    let mut game = GameState::with_board_size(14, 8);
+    game.foods = vec![Position { x: 4, y: 4 }];
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.player.body = VecDeque::from([
+        Position { x: 7, y: 4 },
+        Position { x: 6, y: 4 },
+        Position { x: 5, y: 4 },
+    ]);
+    game.player.direction = Direction::Left;
+    game.player.set_ai_controlled(true);
+    game.enemies = vec![super::Snake::new_ai(
+        VecDeque::from([
+            Position { x: 4, y: 0 },
+            Position { x: 4, y: 1 },
+            Position { x: 4, y: 2 },
+            Position { x: 4, y: 3 },
+        ]),
+        Direction::Down,
+        super::SnakeAppearance::for_slot(0),
+    )];
+
+    assert!(!game.snake_step_is_safe(game.player(), Position { x: 4, y: 4 }));
+}
