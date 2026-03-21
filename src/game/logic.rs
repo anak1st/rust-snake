@@ -41,7 +41,7 @@ impl GameState {
         // AI 移动规划（所有 AI 的规划在碰撞判断之前完成，确保公平性）
         let mut enemy_plans = Vec::with_capacity(self.enemies.len());
         for enemy_index in 0..self.enemies.len() {
-            enemy_plans.push(self.plan_enemy_move(enemy_index));
+            enemy_plans.push(self.enemies[enemy_index].plan_move(self));
         }
 
         // 碰撞检测
@@ -127,9 +127,7 @@ impl GameState {
     /// 让指定 AI 前进一步，并处理吃到物品后的增长。
     fn advance_enemy(&mut self, enemy_index: usize, plan: EnemyPlan) {
         let enemy = &mut self.enemies[enemy_index];
-        enemy.snake.direction = plan.navigation.direction;
-        enemy.random_walk_steps = plan.navigation.random_walk_steps;
-        enemy.random_walk_direction = plan.navigation.random_walk_direction;
+        enemy.apply_navigation(plan.navigation);
         Self::advance_snake(
             &mut enemy.snake,
             plan.next_head,

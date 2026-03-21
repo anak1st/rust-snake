@@ -8,22 +8,15 @@ use super::{
     Direction, EnemyPlan, EnemySnake, GameState, NavigationDecision, Position, SnakeAppearance,
 };
 
-impl GameState {
-    /// 为一条 AI 计算下一步移动意图。
+impl EnemySnake {
+    /// 为当前 AI 计算下一步移动意图。
     ///
-    /// 根据当前游戏状态，为指定 AI 选择最佳移动方向，
-    /// 并计算该移动带来的效果（吃到食物、撞到炸弹等）。
-    ///
-    /// # 参数
-    /// - `enemy_index`: AI 蛇在 `enemies` 数组中的索引
-    ///
-    /// # 返回值
-    /// 返回包含下一步位置、移动效果和导航决策的完整计划
-    pub(super) fn plan_enemy_move(&self, enemy_index: usize) -> EnemyPlan {
-        let navigation = self.choose_enemy_direction(enemy_index);
-        let enemy = &self.enemies[enemy_index];
-        let next_head = self.next_position(enemy.head(), navigation.direction);
-        let effect = self.tile_effect(next_head);
+    /// AI 的状态与决策都归属于蛇自身，`GameState` 只提供棋盘规则、
+    /// 占用判断与物品分布等环境信息。
+    pub(super) fn plan_move(&self, game: &GameState) -> EnemyPlan {
+        let navigation = self.choose_direction(game);
+        let next_head = game.next_position(self.head(), navigation.direction);
+        let effect = game.tile_effect(next_head);
 
         EnemyPlan {
             next_head,
@@ -34,6 +27,13 @@ impl GameState {
             navigation,
             crashes: false,
         }
+    }
+
+    /// 应用本次规划得到的导航状态。
+    pub(super) fn apply_navigation(&mut self, navigation: NavigationDecision) {
+        self.snake.direction = navigation.direction;
+        self.random_walk_steps = navigation.random_walk_steps;
+        self.random_walk_direction = navigation.random_walk_direction;
     }
 
     /// 为 AI 敌蛇选择下一步的移动方向。
@@ -47,31 +47,27 @@ impl GameState {
     /// 5. **紧急逃生**：从剩余安全方向中任选一个
     /// 6. **无路可走**：保持当前方向（将导致死亡）
     ///
-    /// # 参数
-    /// - `enemy_index`: AI 蛇在 `enemies` 数组中的索引
-    ///
     /// # 返回值
     /// 返回包含方向、随机漫步步数和方向的导航决策
-    fn choose_enemy_direction(&self, enemy_index: usize) -> NavigationDecision {
-        let enemy = &self.enemies[enemy_index];
-
+    fn choose_direction(&self, game: &GameState) -> NavigationDecision {
         // 如果正在随机漫步，尝试继续沿当前方向走
-        if enemy.random_walk_steps > 0 {
-            if let Some(walk_dir) = enemy.random_walk_direction {
-                let next = self.next_position(enemy.head(), walk_dir);
-                if self.enemy_step_is_safe(enemy_index, next) {
+        if self.random_walk_steps > 0 {
+            if let Some(walk_dir) = self.random_walk_direction {
+                let next = game.next_position(self.head(), walk_dir);
+                if game.enemy_step_is_safe(self, next) {
                     return NavigationDecision {
                         direction: walk_dir,
-                        random_walk_steps: enemy.random_walk_steps.saturating_sub(1),
+                        random_walk_steps: self.random_walk_steps.saturating_sub(1),
                         random_walk_direction: Some(walk_dir),
                     };
                 }
             }
+
             // 当前方向不安全，重新选择一个安全的随机方向
-            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
+            let walk_dir = self.random_walk_direction(game);
             return NavigationDecision {
                 direction: walk_dir,
-                random_walk_steps: enemy.random_walk_steps.saturating_sub(1),
+                random_walk_steps: self.random_walk_steps.saturating_sub(1),
                 random_walk_direction: Some(walk_dir),
             };
         }
@@ -79,7 +75,7 @@ impl GameState {
         // 15% 概率触发随机漫步模式
         let mut rng = rand::rng();
         if rng.random_range(0..100) < 15 {
-            let walk_dir = self.random_walk_direction(enemy_index, enemy.direction());
+            let walk_dir = self.random_walk_direction(game);
             let steps = rng.random_range(5..15);
             return NavigationDecision {
                 direction: walk_dir,
@@ -89,33 +85,25 @@ impl GameState {
         }
 
         // 追逐最近的食物
-        let target = self.closest_consumable_to(enemy.head());
-        let preferred = self.preferred_directions(enemy.head(), target);
+        let target = game.closest_consumable_to(self.head());
+        let preferred = game.preferred_directions(self.head(), target);
 
         for direction in preferred {
             // 跳过反向（不能 180 度掉头）
-            if Self::is_opposite(enemy.direction(), direction) {
+            if GameState::is_opposite(self.direction(), direction) {
                 continue;
             }
 
-            let next = self.next_position(enemy.head(), direction);
-            if self.enemy_step_is_safe(enemy_index, next) {
-                return NavigationDecision {
-                    direction,
-                    random_walk_steps: 0,
-                    random_walk_direction: None,
-                };
+            let next = game.next_position(self.head(), direction);
+            if game.enemy_step_is_safe(self, next) {
+                return Self::steady_navigation(direction);
             }
         }
 
         // 保持当前方向（如果安全）
-        let next = self.next_position(enemy.head(), enemy.direction());
-        if self.enemy_step_is_safe(enemy_index, next) {
-            return NavigationDecision {
-                direction: enemy.direction(),
-                random_walk_steps: 0,
-                random_walk_direction: None,
-            };
+        let next = game.next_position(self.head(), self.direction());
+        if game.enemy_step_is_safe(self, next) {
+            return Self::steady_navigation(self.direction());
         }
 
         // 紧急逃生，从剩余安全方向中任选一个
@@ -127,24 +115,16 @@ impl GameState {
         ]
         .into_iter()
         .filter(|&direction| {
-            !Self::is_opposite(enemy.direction(), direction)
-                && self.enemy_step_is_safe(enemy_index, self.next_position(enemy.head(), direction))
+            !GameState::is_opposite(self.direction(), direction)
+                && game.enemy_step_is_safe(self, game.next_position(self.head(), direction))
         });
 
         if let Some(direction) = safe_dirs.into_iter().next() {
-            return NavigationDecision {
-                direction,
-                random_walk_steps: 0,
-                random_walk_direction: None,
-            };
+            return Self::steady_navigation(direction);
         }
 
         // 无路可走，保持当前方向（将导致死亡）
-        NavigationDecision {
-            direction: enemy.direction(),
-            random_walk_steps: 0,
-            random_walk_direction: None,
-        }
+        Self::steady_navigation(self.direction())
     }
 
     /// 为随机漫步选择一个安全的方向。
@@ -152,14 +132,7 @@ impl GameState {
     /// 随机尝试所有方向，从中选择一个安全的方向。
     /// 如果没有安全方向，则尝试保持当前方向；
     /// 如果当前方向也不安全，则默认返回向上。
-    ///
-    /// # 参数
-    /// - `enemy_index`: AI 蛇的索引
-    /// - `current_direction`: 当前移动方向
-    ///
-    /// # 返回值
-    /// 返回一个安全的移动方向
-    fn random_walk_direction(&self, enemy_index: usize, current_direction: Direction) -> Direction {
+    fn random_walk_direction(&self, game: &GameState) -> Direction {
         let all = [
             Direction::Up,
             Direction::Down,
@@ -171,12 +144,12 @@ impl GameState {
 
         for _ in 0..all.len() {
             let direction = all[rng.random_range(0..all.len())];
-            if Self::is_opposite(current_direction, direction) {
+            if GameState::is_opposite(self.direction(), direction) {
                 continue;
             }
 
-            let next = self.next_position(self.enemies[enemy_index].head(), direction);
-            if self.enemy_step_is_safe(enemy_index, next) {
+            let next = game.next_position(self.head(), direction);
+            if game.enemy_step_is_safe(self, next) {
                 safe_directions.push(direction);
             }
         }
@@ -185,14 +158,34 @@ impl GameState {
             return direction;
         }
 
-        let next = self.next_position(self.enemies[enemy_index].head(), current_direction);
-        if self.enemy_step_is_safe(enemy_index, next) {
-            return current_direction;
+        let next = game.next_position(self.head(), self.direction());
+        if game.enemy_step_is_safe(self, next) {
+            return self.direction();
         }
 
         Direction::Up
     }
 
+    /// 返回一个不携带随机漫步状态的普通导航结果。
+    fn steady_navigation(direction: Direction) -> NavigationDecision {
+        NavigationDecision {
+            direction,
+            random_walk_steps: 0,
+            random_walk_direction: None,
+        }
+    }
+
+    /// AI 是否会主动规避一次非撞墙风险。
+    ///
+    /// 根据配置的概率决定 AI 是否会主动避开炸弹、玩家或其他 AI。
+    /// 这个机制让 AI 偶尔会"失误"，增加游戏的趣味性。
+    fn avoids_non_wall_hazard() -> bool {
+        let mut rng = rand::rng();
+        rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
+    }
+}
+
+impl GameState {
     /// 判断 AI 的下一步位置是否安全（不会立即撞死）。
     ///
     /// 安全性检查包括：
@@ -204,36 +197,32 @@ impl GameState {
     /// 这增加了游戏的不确定性和可玩性。
     ///
     /// # 参数
-    /// - `enemy_index`: AI 蛇的索引
+    /// - `enemy`: 当前执行决策的 AI，自身碰撞和“跳过自己”都基于这个引用判断
     /// - `next`: 待检查的下一步位置
     ///
     /// # 返回值
     /// 如果位置安全则返回 `true`
-    fn enemy_step_is_safe(&self, enemy_index: usize, next: Position) -> bool {
+    pub(super) fn enemy_step_is_safe(&self, enemy: &EnemySnake, next: Position) -> bool {
         if self.hit_wall(next) {
             return false;
         }
 
-        if self.occupies_with_tail_rules(self.enemies[enemy_index].body(), next, false) {
+        if self.occupies_with_tail_rules(enemy.body(), next, false) {
             return false;
         }
 
         let hits_non_wall_hazard = self.bombs.contains(&next)
             || self.player_occupies_position(next, 0)
-            || self.enemies.iter().enumerate().any(|(other_index, _)| {
-                other_index != enemy_index && self.enemy_occupies_position(other_index, next, &[])
-            });
+            || self
+                .enemies
+                .iter()
+                .enumerate()
+                .any(|(other_index, other_enemy)| {
+                    !std::ptr::eq(other_enemy, enemy)
+                        && self.enemy_occupies_position(other_index, next, &[])
+                });
 
-        !hits_non_wall_hazard || !self.enemy_avoids_non_wall_hazard()
-    }
-
-    /// AI 是否会主动规避一次非撞墙风险。
-    ///
-    /// 根据配置的概率决定 AI 是否会主动避开炸弹、玩家或其他 AI。
-    /// 这个机制让 AI 偶尔会"失误"，增加游戏的趣味性。
-    fn enemy_avoids_non_wall_hazard(&self) -> bool {
-        let mut rng = rand::rng();
-        rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
+        !hits_non_wall_hazard || !EnemySnake::avoids_non_wall_hazard()
     }
 
     /// 让 AI 重生到预设角落位置，避免出生点过于随机。

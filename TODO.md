@@ -6,6 +6,41 @@
 - [x] 超级食物功能（额外增长 4 节）
 - [x] 炸弹功能（触碰即死）
 
+## 结构评估与抽象整理
+
+### 当前判断
+
+- [ ] 当前项目已经具备 `App / Game / Render / Config` 分层，适合作为“终端网格类小游戏框架雏形”，但仍然是贪吃蛇专用实现，暂时不应直接定义为通用小游戏引擎
+- [ ] `GameState` 目前仍然直接持有 `player / enemies / foods / super_foods / bombs / legacy_foods` 等贪吃蛇专属语义，说明核心抽象还没有提升到通用世界模型
+- [ ] 现有组合式建模方向是合理的：`Snake` 承载公共状态，`PlayerSnake` / `EnemySnake` 承载各自专属状态；问题主要不是“没有继承”，而是重复转发方法较多
+- [ ] 当前存在多层 API 转发：`GameState -> PlayerSnake/EnemySnake -> Snake`，外层面向 UI 的便捷接口是有价值的，但实体内部大量机械透传会让结构显得绕
+- [ ] 一部分逻辑应继续留在 `GameState` 作为“世界规则”：碰撞结算、物品生成与消费、重生、AI 选目标、棋盘空位搜索
+- [ ] 一部分逻辑更适合收敛回蛇自身：成长判断、投影长度、占位判断、前进一步；目前这类行为散落在 `game::logic` 中，削弱了实体边界
+
+### 设计疑问记录
+
+- [ ] 玩家蛇与 AI 蛇现在没有继承；Rust 中继续使用组合而不是模拟继承，方向保持不变
+- [ ] 评估并减少 `PlayerSnake` / `EnemySnake` 对 `Snake` 的重复只读转发方法，避免接口层级过深
+- [ ] 评估哪些逻辑应该下沉到 `Snake` / `PlayerSnake` / `EnemySnake`，避免 `GameState` 变成“替所有实体做事的上帝对象”
+- [ ] 暂不引入过早的大抽象，例如通用 ECS、泛型小游戏引擎、统一 `enum` 实体容器；当前收益不足，改造成本偏高
+
+### 代价最小的重构方案
+
+- [ ] 第一步：将蛇自身行为下沉到 `Snake`
+  将 `snake_grows`、`projected_length`、`occupies_with_tail_rules`、`advance_snake` 收敛为 `Snake` 方法，例如 `will_grow_on_step`、`projected_length`、`occupies`、`advance`
+- [ ] 第二步：将控制逻辑分别收敛到 `PlayerSnake` 和 `EnemySnake`
+  `PlayerSnake` 负责 `pending_direction` 的写入与提交；`EnemySnake` 负责应用导航决策和维护随机漫步状态
+- [ ] 第三步：压缩实体内部的机械转发
+  保留 `GameState` 面向渲染层和应用层的少量便捷接口，减少 `PlayerSnake` / `EnemySnake` 上对 `Snake` 的重复 getter；必要时引入轻量 trait（如 `SnakeLike`）
+- [ ] 第四步：保持 `GameState` 只负责世界规则与调度
+  `tick` 继续作为总流程入口，但内部尽量改为“调用实体行为 + 结算世界规则”，降低单个文件的认知负担
+
+### 暂不推荐的重构
+
+- [ ] 暂不将当前项目直接抽象成通用小游戏引擎；目前更适合先演进为“终端固定 tick 网格游戏框架”
+- [ ] 暂不将 `PlayerSnake` / `EnemySnake` 改造成复杂泛型层次（如 `SnakeEntity<C>`）；这一步可以等第三种蛇或更多控制类型出现后再考虑
+- [ ] 暂不为了消除转发而暴露过多内部字段；应优先减少无意义包装，而不是回退到弱封装
+
 ## 视觉效果优化
 
 - [ ] 蛇身使用方块字符（■/□）代替 o/x
