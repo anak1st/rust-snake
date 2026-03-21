@@ -1,5 +1,7 @@
 //! 封装 AI 蛇的路径选择与安全性评估。
 
+use std::collections::VecDeque;
+
 use rand::Rng;
 use rand::seq::SliceRandom;
 
@@ -58,7 +60,9 @@ impl Snake {
         if ai_state.random_walk_steps > 0 {
             if let Some(walk_dir) = ai_state.random_walk_direction {
                 let next = game.next_position(self.head(), walk_dir);
-                if game.snake_step_is_safe(self, next) {
+                if game.snake_step_is_safe(self, next)
+                    && game.snake_step_has_adequate_space(self, next)
+                {
                     return NavigationDecision {
                         direction: walk_dir,
                         random_walk_steps: ai_state.random_walk_steps.saturating_sub(1),
@@ -92,25 +96,33 @@ impl Snake {
         let target = game.closest_consumable_to(self.head());
         let preferred = game.preferred_directions(self.head(), target);
 
-        for direction in preferred {
-            // 跳过反向（不能 180 度掉头）
-            if self.direction().is_opposite(direction) {
-                continue;
-            }
-
-            let next = game.next_position(self.head(), direction);
-            if game.snake_step_is_safe(self, next) {
-                return Self::steady_navigation(direction);
-            }
+        if let Some(direction) = self.pick_direction_with_space_preference(game, preferred) {
+            return Self::steady_navigation(direction);
         }
 
-        // 保持当前方向（如果安全）
+        // 如果当前方向既安全又留有足够活动空间，优先保持方向。
         let next = game.next_position(self.head(), self.direction());
-        if game.snake_step_is_safe(self, next) {
+        if game.snake_step_is_safe(self, next) && game.snake_step_has_adequate_space(self, next) {
             return Self::steady_navigation(self.direction());
         }
 
         // 紧急逃生，从剩余安全方向中任选一个
+        if let Some(direction) = self.pick_direction_with_space_preference(
+            game,
+            [
+                Direction::Up,
+                Direction::Down,
+                Direction::Left,
+                Direction::Right,
+            ],
+        ) {
+            return Self::steady_navigation(direction);
+        }
+
+        if game.snake_step_is_safe(self, next) {
+            return Self::steady_navigation(self.direction());
+        }
+
         let safe_dirs = [
             Direction::Up,
             Direction::Down,
@@ -146,15 +158,8 @@ impl Snake {
         let mut rng = rand::rng();
         directions.shuffle(&mut rng);
 
-        for direction in directions {
-            if self.direction().is_opposite(direction) {
-                continue;
-            }
-
-            let next = game.next_position(self.head(), direction);
-            if game.snake_step_is_safe(self, next) {
-                return direction;
-            }
+        if let Some(direction) = self.pick_direction_with_space_preference(game, directions) {
+            return direction;
         }
 
         let next = game.next_position(self.head(), self.direction());
@@ -181,6 +186,39 @@ impl Snake {
     fn avoids_non_wall_hazard() -> bool {
         let mut rng = rand::rng();
         rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
+    }
+
+    /// 按给定顺序挑选方向，并优先选择“安全且活动空间足够”的候选。
+    ///
+    /// 如果所有安全方向都会把蛇压进较小空间，则回退到第一个即时安全方向，
+    /// 避免在绝境中因为过度保守而直接放弃可走的路。
+    fn pick_direction_with_space_preference(
+        &self,
+        game: &GameState,
+        directions: impl IntoIterator<Item = Direction>,
+    ) -> Option<Direction> {
+        let mut fallback = None;
+
+        for direction in directions {
+            if self.direction().is_opposite(direction) {
+                continue;
+            }
+
+            let next = game.next_position(self.head(), direction);
+            if !game.snake_step_is_safe(self, next) {
+                continue;
+            }
+
+            if game.snake_step_has_adequate_space(self, next) {
+                return Some(direction);
+            }
+
+            if fallback.is_none() {
+                fallback = Some(direction);
+            }
+        }
+
+        fallback
     }
 }
 
@@ -224,6 +262,20 @@ impl GameState {
             || self.other_snake_can_win_head_on(snake, next, my_projected_length);
 
         !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
+    }
+
+    /// 判断这一步走完后，蛇头所在连通区域是否仍足以容纳自身长度。
+    ///
+    /// 该检查用于识别“虽然不会立刻撞死，但会把自己扎进狭小封闭空间”的走法。
+    /// 实现上会先按本步结果投影出新的蛇身位置，再从新蛇头出发做 flood fill，
+    /// 统计仍可接触到的活动格数量；如果这片区域小于投影体长，就视为高风险。
+    ///
+    /// 这是一个轻量近似，不会尝试精确模拟未来数步，
+    /// 因此当空间本身足够大时，AI 仍会允许进入。
+    pub(super) fn snake_step_has_adequate_space(&self, snake: &Snake, next: Position) -> bool {
+        let effect = self.tile_effect(next);
+        let projected_length = snake.projected_length(effect.growth_amount);
+        self.reachable_space_after_step(snake, next, effect.growth_amount) >= projected_length
     }
 
     /// 判断除当前蛇自身外，是否还有其他蛇占据指定位置。
@@ -299,6 +351,118 @@ impl GameState {
                 let next = self.next_position(snake.head(), direction);
                 !self.hit_wall(next) && self.tile_effect(next).growth_amount > 0
             })
+    }
+
+    /// 统计一条蛇完成指定落点后，蛇头仍能抵达的活动格数量。
+    fn reachable_space_after_step(
+        &self,
+        snake: &Snake,
+        next: Position,
+        growth_amount: u16,
+    ) -> usize {
+        let mut blocked = vec![false; usize::from(self.width) * usize::from(self.height)];
+
+        for corpse in &self.corpse_pieces {
+            blocked[self.board_index(corpse.position())] = true;
+        }
+
+        for bomb in &self.bombs {
+            blocked[self.board_index(*bomb)] = true;
+        }
+
+        if self.player.is_alive() && !std::ptr::eq(&self.player, snake) {
+            self.mark_body_as_blocked(
+                &mut blocked,
+                self.player.body(),
+                self.snake_might_grow_next_tick(&self.player),
+            );
+        }
+
+        for enemy in &self.enemies {
+            if enemy.is_alive() && !std::ptr::eq(enemy, snake) {
+                self.mark_body_as_blocked(
+                    &mut blocked,
+                    enemy.body(),
+                    self.snake_might_grow_next_tick(enemy),
+                );
+            }
+        }
+
+        let projected_body = self.projected_body_after_step(snake, next, growth_amount);
+        for segment in projected_body
+            .iter()
+            .take(projected_body.len().saturating_sub(1))
+        {
+            blocked[self.board_index(*segment)] = true;
+        }
+
+        let start = self.board_index(next);
+        blocked[start] = false;
+
+        let mut visited = vec![false; blocked.len()];
+        let mut frontier = VecDeque::from([next]);
+        visited[start] = true;
+        let mut reachable = 0;
+
+        while let Some(position) = frontier.pop_front() {
+            reachable += 1;
+
+            for direction in [
+                Direction::Up,
+                Direction::Down,
+                Direction::Left,
+                Direction::Right,
+            ] {
+                let neighbor = self.next_position(position, direction);
+                if self.hit_wall(neighbor) {
+                    continue;
+                }
+
+                let index = self.board_index(neighbor);
+                if blocked[index] || visited[index] {
+                    continue;
+                }
+
+                visited[index] = true;
+                frontier.push_back(neighbor);
+            }
+        }
+
+        reachable
+    }
+
+    /// 将一条蛇当前会占据的格子标记为阻挡。
+    ///
+    /// 当本回合尾巴会移动时，尾格会被视为可穿过，以保持与即时安全判断一致。
+    fn mark_body_as_blocked(&self, blocked: &mut [bool], body: &VecDeque<Position>, grows: bool) {
+        for (index, segment) in body.iter().enumerate() {
+            let is_tail = index == 0;
+            if is_tail && !grows {
+                continue;
+            }
+
+            blocked[self.board_index(*segment)] = true;
+        }
+    }
+
+    /// 计算一条蛇在本步结算后的投影蛇身。
+    fn projected_body_after_step(
+        &self,
+        snake: &Snake,
+        next: Position,
+        growth_amount: u16,
+    ) -> VecDeque<Position> {
+        let mut body = snake.body().clone();
+        body.push_back(next);
+        if !snake.grows(growth_amount) {
+            body.pop_front();
+        }
+        body
+    }
+
+    /// 将棋盘坐标转换为连续数组下标。
+    fn board_index(&self, position: Position) -> usize {
+        usize::from(position.y) * usize::from(self.width) + usize::from(position.x)
     }
 
     /// 返回离指定坐标最近的一颗可食用物品。

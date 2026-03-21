@@ -116,7 +116,7 @@ impl CellFlash {
     fn is_visible(&self, now: Instant) -> bool {
         let interval = Duration::from_millis(FOOD_FLASH_INTERVAL_MS).as_millis();
         let step = self.elapsed(now).as_millis() / interval.max(1);
-        step % 2 == 0
+        step.is_multiple_of(2)
     }
 }
 
@@ -124,7 +124,7 @@ impl CellFlash {
 fn pulse_phase(anchor: Instant, now: Instant, interval_ms: u64) -> bool {
     let interval = Duration::from_millis(interval_ms).as_millis();
     let step = now.saturating_duration_since(anchor).as_millis() / interval.max(1);
-    step % 2 == 0
+    step.is_multiple_of(2)
 }
 
 /// 计算稀疏脉冲相位，用于普通食物的低频闪烁。

@@ -555,3 +555,77 @@ fn ai_treats_enemy_tail_as_blocked_when_enemy_might_grow() {
 
     assert!(!game.snake_step_is_safe(game.player(), Position { x: 4, y: 4 }));
 }
+
+#[test]
+/// 验证 AI 不会为了眼前食物钻进明显装不下自己的自围空间。
+fn ai_avoids_entering_small_self_enclosed_space() {
+    let mut game = GameState::with_board_size(10, 10);
+    let trapped_cell = Position { x: 3, y: 3 };
+    game.foods = vec![trapped_cell];
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.clear();
+    game.player.body = rectangular_ring_body(2, 2, 4, 4, 3);
+    game.player.direction = Direction::Up;
+    game.player.set_ai_controlled(true);
+
+    assert!(!game.snake_step_has_adequate_space(game.player(), trapped_cell));
+
+    let plan = game.player.plan_ai_move(&game);
+
+    assert_ne!(plan.next_head, trapped_cell);
+}
+
+#[test]
+/// 验证当自围区域足够大时，AI 仍然可以进入，不会被空间检查过度束缚。
+fn ai_still_enters_large_self_enclosed_space() {
+    let mut game = GameState::with_board_size(12, 12);
+    let roomy_cell = Position { x: 2, y: 2 };
+    game.foods = vec![roomy_cell];
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
+    game.enemies.clear();
+    game.player.body = rectangular_ring_body(1, 1, 8, 8, 2);
+    game.player.direction = Direction::Up;
+    game.player.set_ai_controlled(true);
+
+    assert!(game.snake_step_has_adequate_space(game.player(), roomy_cell));
+
+    let plan = game.player.plan_ai_move(&game);
+
+    assert_eq!(plan.next_head, roomy_cell);
+}
+
+/// 构造一圈矩形蛇身，并让蛇头停在左边界上，便于测试“向右钻入内部空间”的场景。
+fn rectangular_ring_body(
+    left: u16,
+    top: u16,
+    width: u16,
+    height: u16,
+    head_y: u16,
+) -> VecDeque<Position> {
+    let right = left + width - 1;
+    let bottom = top + height - 1;
+    let mut body = VecDeque::new();
+
+    for x in left..=right {
+        body.push_back(Position { x, y: top });
+    }
+
+    for y in top + 1..=bottom {
+        body.push_back(Position { x: right, y });
+    }
+
+    for x in (left..right).rev() {
+        body.push_back(Position { x, y: bottom });
+    }
+
+    for y in ((head_y + 1)..bottom).rev() {
+        body.push_back(Position { x: left, y });
+    }
+
+    body.push_back(Position { x: left, y: head_y });
+    body
+}
