@@ -90,7 +90,7 @@ impl EnemySnake {
 
         for direction in preferred {
             // 跳过反向（不能 180 度掉头）
-            if GameState::is_opposite(self.direction(), direction) {
+            if self.direction().is_opposite(direction) {
                 continue;
             }
 
@@ -115,7 +115,7 @@ impl EnemySnake {
         ]
         .into_iter()
         .filter(|&direction| {
-            !GameState::is_opposite(self.direction(), direction)
+            !self.direction().is_opposite(direction)
                 && game.enemy_step_is_safe(self, game.next_position(self.head(), direction))
         });
 
@@ -144,7 +144,7 @@ impl EnemySnake {
 
         for _ in 0..all.len() {
             let direction = all[rng.random_range(0..all.len())];
-            if GameState::is_opposite(self.direction(), direction) {
+            if self.direction().is_opposite(direction) {
                 continue;
             }
 
@@ -423,7 +423,7 @@ impl GameState {
             .chain(self.legacy_foods.iter())
             .chain(self.super_foods.iter())
             .copied()
-            .min_by_key(|food| Self::manhattan_distance(origin, *food))
+            .min_by_key(|food| origin.manhattan_distance(*food))
             .unwrap_or(origin)
     }
 

@@ -6,6 +6,7 @@ use crate::config::game::{AI_SNAKE_COUNT, DEFAULT_BOARD_HEIGHT, DEFAULT_BOARD_WI
 
 mod ai;
 mod logic;
+mod spawn;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +37,26 @@ pub enum Direction {
 pub struct Position {
     pub x: u16,
     pub y: u16,
+}
+
+impl Direction {
+    /// 判断两个方向是否互为反方向。
+    fn is_opposite(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (Self::Up, Self::Down)
+                | (Self::Down, Self::Up)
+                | (Self::Left, Self::Right)
+                | (Self::Right, Self::Left)
+        )
+    }
+}
+
+impl Position {
+    /// 计算与另一个坐标之间的曼哈顿距离。
+    fn manhattan_distance(self, other: Self) -> u16 {
+        self.x.abs_diff(other.x) + self.y.abs_diff(other.y)
+    }
 }
 
 /// 蛇的固定外观信息。
@@ -472,7 +493,7 @@ impl GameState {
 
     /// 更新玩家下一次移动方向，并忽略直接反向输入。
     pub fn set_direction(&mut self, direction: Direction) {
-        if Self::is_opposite(self.player.direction(), direction) {
+        if self.player.direction().is_opposite(direction) {
             return;
         }
 
