@@ -7,10 +7,10 @@ use ratatui::widgets::Paragraph;
 use crate::game::{EnemySnake, GameState, Position};
 
 use super::style::{
-    BOMB_COLOR, DEATH_FLASH_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR,
-    style_with_color, styled_block,
+    BOMB_COLOR, FOOD_COLOR, MAIN_BORDER_COLOR, MUTED_COLOR, SUPER_FRUIT_COLOR, style_with_color,
+    styled_block,
 };
-use super::{ActiveCellFlash, AnimationFrame, CellFlashKind};
+use super::{ActiveCellFlash, ActiveDeathCell, AnimationFrame, CellFlashKind};
 
 #[derive(Clone, Copy)]
 struct BoardCell {
@@ -111,24 +111,15 @@ fn animate_cell(
     cell: BoardCell,
     animation: &AnimationFrame,
 ) -> BoardCell {
+    if let Some(death_cell) = active_death_cell_at(&animation.active_death_cells, position) {
+        return BoardCell::new(death_cell.glyph, death_cell.color, death_cell.bold);
+    }
+
     if let Some(flash) = active_flash_at(&animation.active_flashes, position) {
         return flash_cell(flash);
     }
 
-    if !animation.death_flash_visible {
-        return pulse_super_food_cell(game, position, cell, animation);
-    }
-
-    let player = game.player();
-    if !player.body().contains(&position) {
-        return pulse_super_food_cell(game, position, cell, animation);
-    }
-
-    if position == player.head() {
-        return BoardCell::new(player.head_glyph(), DEATH_FLASH_COLOR, true);
-    }
-
-    BoardCell::new(player.body_glyph(), DEATH_FLASH_COLOR, true)
+    pulse_super_food_cell(game, position, cell, animation)
 }
 
 fn pulse_super_food_cell(
@@ -153,6 +144,10 @@ fn active_flash_at(flashes: &[ActiveCellFlash], position: Position) -> Option<Ac
         .iter()
         .copied()
         .find(|flash| flash.position == position && flash.is_visible)
+}
+
+fn active_death_cell_at(cells: &[ActiveDeathCell], position: Position) -> Option<ActiveDeathCell> {
+    cells.iter().copied().find(|cell| cell.position == position)
 }
 
 fn flash_cell(flash: ActiveCellFlash) -> BoardCell {

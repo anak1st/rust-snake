@@ -331,6 +331,50 @@ struct TileEffect {
     hits_bomb: bool,
 }
 
+/// 游戏在最近一个逻辑 tick 中产生的事件。
+#[derive(Debug, Clone)]
+pub enum GameEvent {
+    /// 一条蛇死亡，并留下了待渲染的尸体轨迹。
+    SnakeDied(SnakeDeathEvent),
+}
+
+/// 描述一条蛇死亡时的身体轨迹与原始外观。
+#[derive(Debug, Clone)]
+pub struct SnakeDeathEvent {
+    segments_head_first: Vec<Position>,
+    head_glyph: &'static str,
+    body_glyph: &'static str,
+    head_color: Color,
+    body_color: Color,
+}
+
+impl SnakeDeathEvent {
+    /// 返回按“蛇头到蛇尾”顺序排列的身体坐标。
+    pub fn segments_head_first(&self) -> &[Position] {
+        &self.segments_head_first
+    }
+
+    /// 返回蛇头显示符号。
+    pub fn head_glyph(&self) -> &'static str {
+        self.head_glyph
+    }
+
+    /// 返回蛇身显示符号。
+    pub fn body_glyph(&self) -> &'static str {
+        self.body_glyph
+    }
+
+    /// 返回蛇头颜色。
+    pub fn head_color(&self) -> Color {
+        self.head_color
+    }
+
+    /// 返回蛇身颜色。
+    pub fn body_color(&self) -> Color {
+        self.body_color
+    }
+}
+
 /// 封装一局贪吃蛇的完整状态。
 pub struct GameState {
     /// 棋盘宽度，单位为网格数。
@@ -353,6 +397,8 @@ pub struct GameState {
     super_foods: Vec<Position>,
     /// 当前棋盘上的所有炸弹位置。
     bombs: Vec<Position>,
+    /// 最近一个逻辑 tick 产生的瞬时事件。
+    recent_events: Vec<GameEvent>,
 }
 
 impl GameState {
@@ -383,6 +429,7 @@ impl GameState {
             legacy_foods: Vec::new(),
             super_foods: Vec::new(),
             bombs: Vec::new(),
+            recent_events: Vec::new(),
         };
 
         for slot in 0..AI_SNAKE_COUNT {
@@ -490,6 +537,11 @@ impl GameState {
     /// 返回当前所有炸弹位置。
     pub fn bombs(&self) -> &[Position] {
         &self.bombs
+    }
+
+    /// 返回最近一个逻辑 tick 产生的事件列表。
+    pub fn recent_events(&self) -> &[GameEvent] {
+        &self.recent_events
     }
 
     /// 返回玩家蛇头位置。

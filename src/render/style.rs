@@ -13,9 +13,6 @@ pub(crate) const SUPER_FRUIT_COLOR: Color = Color::LightYellow;
 pub(crate) const BOMB_COLOR: Color = Color::Red;
 /// 主界面统一边框颜色。
 pub(crate) const MAIN_BORDER_COLOR: Color = Color::White;
-/// 玩家死亡闪烁时使用的强调颜色。
-pub(crate) const DEATH_FLASH_COLOR: Color = Color::LightRed;
-
 pub(crate) fn styled_block(
     title: &'static str,
     border_color: Color,

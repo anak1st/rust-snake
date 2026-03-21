@@ -29,6 +29,8 @@ impl GameState {
             return;
         }
 
+        self.recent_events.clear();
+
         // 方向同步
         self.player.snake.direction = self.player.pending_direction();
 
@@ -90,6 +92,8 @@ impl GameState {
         // 推进或重生 AI
         for (enemy_index, plan) in enemy_plans.into_iter().enumerate() {
             if plan.crashes {
+                let appearance = self.enemies[enemy_index].snake.appearance;
+                self.record_snake_death(&enemy_bodies_before_crash[enemy_index], appearance);
                 self.drop_legacy_from_body(&enemy_bodies_before_crash[enemy_index]);
                 self.respawn_enemy(enemy_index);
             } else {
@@ -99,6 +103,7 @@ impl GameState {
 
         // 处理玩家死亡
         if player_dies {
+            self.record_snake_death(&player_body_before_crash, self.player.snake.appearance);
             self.drop_legacy_from_body(&player_body_before_crash);
             self.state = RunState::GameOver;
         }
@@ -470,6 +475,22 @@ impl GameState {
                 self.legacy_foods.push(segment);
             }
         }
+    }
+
+    /// 记录一条蛇的死亡事件，供渲染层播放局部死亡动画。
+    fn record_snake_death(
+        &mut self,
+        body: &VecDeque<Position>,
+        appearance: super::SnakeAppearance,
+    ) {
+        self.recent_events
+            .push(super::GameEvent::SnakeDied(super::SnakeDeathEvent {
+                segments_head_first: body.iter().rev().copied().collect(),
+                head_glyph: appearance.head_glyph,
+                body_glyph: appearance.body_glyph,
+                head_color: appearance.head_color,
+                body_color: appearance.body_color,
+            }));
     }
 
     /// 从棋盘上移除一颗被吃掉的普通食物。
