@@ -3,9 +3,9 @@ pub mod app {
     /// 控制游戏逻辑推进频率，决定蛇移动速度。
     pub const TICK_RATE_MS: u64 = 160;
     /// `--test-ai` 模式下使用的更快逻辑推进频率，便于观察 AI 对战。
-    pub const TEST_AI_TICK_RATE_MS: u64 = 80;
+    pub const TEST_AI_TICK_RATE_MS: u64 = 32;
     /// 控制界面渲染频率，为后续动画和过渡效果预留更细的时间粒度。
-    pub const RENDER_FRAME_RATE_MS: u64 = 33;
+    pub const RENDER_FRAME_RATE_MS: u64 = 16;
 }
 
 /// 游戏玩法相关配置。
@@ -33,13 +33,11 @@ pub mod game {
     /// 单个尸块每隔多少个逻辑 tick 腐化成食物。
     pub const CORPSE_DECAY_INTERVAL_TICKS: u64 = 2;
     /// AI 触发随机漫游的概率，`5` 表示每次决策有 5% 概率进入随机漫游。
-    pub const AI_RANDOM_WALK_CHANCE_PERCENT: u8 = 5;
+    pub const AI_RANDOM_WALK_CHANCE_PERCENT: u8 = 4;
     /// AI 随机漫游持续的最少步数。
-    pub const AI_RANDOM_WALK_MIN_STEPS: u8 = 5;
+    pub const AI_RANDOM_WALK_MIN_STEPS: u8 = 4;
     /// AI 随机漫游持续的最多步数。
-    pub const AI_RANDOM_WALK_MAX_STEPS: u8 = 10;
-    /// AI 对非撞墙风险的规避概率，`100` 表示总会躲避，`0` 表示完全不躲。
-    pub const AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT: u8 = 100;
+    pub const AI_RANDOM_WALK_MAX_STEPS: u8 = 8;
 }
 
 /// 渲染布局相关配置。

@@ -6,8 +6,7 @@ use rand::Rng;
 use rand::seq::SliceRandom;
 
 use crate::config::game::{
-    AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT, AI_RANDOM_WALK_CHANCE_PERCENT, AI_RANDOM_WALK_MAX_STEPS,
-    AI_RANDOM_WALK_MIN_STEPS,
+    AI_RANDOM_WALK_CHANCE_PERCENT, AI_RANDOM_WALK_MAX_STEPS, AI_RANDOM_WALK_MIN_STEPS,
 };
 
 use super::{Direction, GameState, NavigationDecision, Position, Snake, SnakePlan};
@@ -172,15 +171,6 @@ impl Snake {
         }
     }
 
-    /// AI 是否会主动规避一次非撞墙风险。
-    ///
-    /// 根据配置的概率决定 AI 是否会主动避开炸弹、玩家或其他 AI。
-    /// 这个机制让 AI 偶尔会"失误"，增加游戏的趣味性。
-    fn avoids_non_wall_hazard() -> bool {
-        let mut rng = rand::rng();
-        rng.random_range(0..100) < AI_NON_WALL_AVOIDANCE_CHANCE_PERCENT
-    }
-
     /// 统一处理某个意图的风险检查与避险回退。
     ///
     /// 如果主意图方向足够安全，则直接采用；
@@ -287,14 +277,11 @@ impl MoveRisk {
 impl GameState {
     /// 判断一条蛇按当前环境前进一步是否安全（不会立即撞死）。
     ///
-    /// 对于非墙类危险，AI 有一定概率不会主动规避，
-    /// 这增加了游戏的不确定性和可玩性。
-    ///
     /// 处理步骤：
     /// - 检查是否撞墙
     /// - 检查蛇是否存活
     /// - 检查是否撞到自身或尸块（考虑尾巴移动规则）
-    /// - 检查是否撞到炸弹或其他蛇（有概率不规避）
+    /// - 检查是否撞到炸弹或其他蛇
     ///
     /// # 参数
     /// - `snake`: 当前执行决策的蛇，自身碰撞和"跳过自己"都基于这个引用判断
@@ -323,12 +310,12 @@ impl GameState {
             return false;
         }
 
-        // 检查是否撞到炸弹或其他蛇（有概率不规避）
+        // 检查是否撞到炸弹或其他蛇
         let hits_non_wall_hazard = self.bombs.contains(&next)
             || self.other_snakes_occupy_position(snake, next)
             || self.other_snake_can_win_head_on(snake, next, my_projected_length);
 
-        !hits_non_wall_hazard || !Snake::avoids_non_wall_hazard()
+        !hits_non_wall_hazard
     }
 
     /// 判断这一步走完后，蛇头所在连通区域是否仍足以容纳自身长度。
