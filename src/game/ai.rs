@@ -7,6 +7,7 @@ use rand::seq::SliceRandom;
 
 use crate::config::game::{
     AI_RANDOM_WALK_CHANCE_PERCENT, AI_RANDOM_WALK_MAX_STEPS, AI_RANDOM_WALK_MIN_STEPS,
+    AI_REGION_SIZE_MARGIN,
 };
 
 use super::{Direction, GameState, NavigationDecision, Position, Snake, SnakePlan};
@@ -321,7 +322,8 @@ impl GameState {
     pub(super) fn snake_step_has_adequate_space(&self, snake: &Snake, next: Position) -> bool {
         let effect = self.tile_effect(next);
         let projected_length = snake.projected_length(effect.growth_amount);
-        self.reachable_space_after_step(snake, next, effect.growth_amount) >= projected_length
+        self.reachable_space_after_step(snake, next, effect.growth_amount)
+            >= projected_length + AI_REGION_SIZE_MARGIN
     }
 
     /// 判断除当前蛇自身外，是否还有其他蛇占据指定位置。

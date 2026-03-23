@@ -38,6 +38,8 @@ pub mod game {
     pub const AI_RANDOM_WALK_MIN_STEPS: u8 = 4;
     /// AI 随机漫游持续的最多步数。
     pub const AI_RANDOM_WALK_MAX_STEPS: u8 = 8;
+    /// AI 进入某片区域前，要求该区域至少比自身预测长度额外大出的格子数。
+    pub const AI_REGION_SIZE_MARGIN: usize = 2;
 }
 
 /// 渲染布局相关配置。

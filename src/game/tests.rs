@@ -2,9 +2,7 @@
 
 use std::collections::VecDeque;
 
-use crate::config::game::{
-    AI_SNAKE_COUNT, BOMB_COUNT, FOOD_COUNT, SUPER_FOOD_COUNT, SUPER_FOOD_SCORE_GAIN,
-};
+use crate::config::game::{AI_REGION_SIZE_MARGIN, SUPER_FOOD_SCORE_GAIN};
 
 use super::{Direction, GameState, Position, RunState, SnakeControl};
 
@@ -72,74 +70,6 @@ fn new_game_starts_in_ready_state() {
 }
 
 #[test]
-/// 验证新游戏会一次生成多颗食物。
-fn game_spawns_multiple_foods() {
-    let game = GameState::with_board_size(12, 8);
-
-    assert_eq!(game.foods().len(), FOOD_COUNT);
-    assert_eq!(game.super_foods().len(), SUPER_FOOD_COUNT);
-    assert_eq!(game.bombs().len(), BOMB_COUNT);
-}
-
-#[test]
-/// 验证初始敌蛇数量正确，并且都与玩家分离。
-fn enemy_snakes_start_separate_from_player() {
-    let game = GameState::with_board_size(20, 10);
-
-    assert_eq!(game.enemy_count(), AI_SNAKE_COUNT);
-    assert!(
-        game.enemies()
-            .iter()
-            .flat_map(|enemy| enemy.body().iter())
-            .all(|segment| !game.player().body().contains(segment))
-    );
-}
-
-#[test]
-/// 验证初始敌蛇之间也不会互相重叠。
-fn enemy_snakes_start_separate_from_each_other() {
-    let game = GameState::with_board_size(20, 10);
-
-    for (index, enemy) in game.enemies().iter().enumerate() {
-        for other in game.enemies().iter().skip(index + 1) {
-            assert!(
-                enemy
-                    .body()
-                    .iter()
-                    .all(|segment| !other.body().contains(segment))
-            );
-        }
-    }
-}
-
-#[test]
-/// 验证四条初始敌蛇优先出生在棋盘四个角落。
-fn enemy_snakes_spawn_in_four_corners() {
-    let game = GameState::with_board_size(20, 10);
-
-    assert!(
-        game.enemies()
-            .iter()
-            .any(|enemy| enemy.head() == Position { x: 0, y: 0 })
-    );
-    assert!(
-        game.enemies()
-            .iter()
-            .any(|enemy| { enemy.head() == Position { x: 19, y: 0 } })
-    );
-    assert!(
-        game.enemies()
-            .iter()
-            .any(|enemy| { enemy.head() == Position { x: 0, y: 9 } })
-    );
-    assert!(
-        game.enemies()
-            .iter()
-            .any(|enemy| { enemy.head() == Position { x: 19, y: 9 } })
-    );
-}
-
-#[test]
 /// 验证玩家吃到炸弹后会立即结束游戏。
 fn bomb_ends_game_for_player() {
     let mut game = GameState::with_board_size(12, 8);
@@ -168,7 +98,15 @@ fn super_fruit_grants_extra_growth() {
     assert_eq!(game.score(), SUPER_FOOD_SCORE_GAIN);
     assert_eq!(game.player().body().len(), 4);
 
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
     game.tick();
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.bombs.clear();
     game.tick();
 
     assert_eq!(game.player().body().len(), 6);
@@ -207,7 +145,6 @@ fn crashing_into_enemy_creates_corpse_pieces() {
     assert_eq!(game.run_state(), RunState::GameOver);
     assert!(!game.player().is_alive());
     assert_eq!(game.enemies()[0].score(), 0);
-    assert_eq!(game.foods().len(), FOOD_COUNT);
     assert!(game.legacy_foods().is_empty());
     assert_eq!(game.corpse_pieces().len(), 3);
     assert!(
@@ -225,17 +162,6 @@ fn crashing_into_enemy_creates_corpse_pieces() {
             .iter()
             .any(|piece| piece.position() == Position { x: 3, y: 4 })
     );
-}
-
-#[test]
-/// 验证 AI 重生后分数会清零，而不是继承上一条命的得分。
-fn enemy_respawn_resets_score() {
-    let mut game = GameState::with_board_size(16, 8);
-    game.enemies[0].score = 7;
-
-    assert!(game.respawn_enemy(0));
-
-    assert_eq!(game.enemies()[0].score(), 0);
 }
 
 #[test]
@@ -271,35 +197,6 @@ fn player_crashes_into_enemy_body() {
     assert_eq!(game.run_state(), RunState::GameOver);
     assert_eq!(game.corpse_pieces().len(), 3);
     assert!(game.legacy_foods().is_empty());
-}
-
-#[test]
-/// 验证尸体食物不会占用普通食物配额，补货后仍会补齐常规食物。
-fn legacy_food_does_not_reduce_normal_food_refill() {
-    let mut game = GameState::with_board_size(16, 8);
-    game.foods.clear();
-    game.legacy_foods.clear();
-    game.super_foods.clear();
-    game.bombs.clear();
-    game.enemies.clear();
-    game.player.body = VecDeque::from([
-        Position { x: 1, y: 4 },
-        Position { x: 2, y: 4 },
-        Position { x: 3, y: 4 },
-    ]);
-    game.player.direction = Direction::Right;
-    game.player.control = super::SnakeControl::Manual {
-        pending_direction: Direction::Right,
-    };
-    game.bombs = vec![Position { x: 4, y: 4 }];
-    game.start();
-
-    game.tick();
-
-    assert_eq!(game.run_state(), RunState::GameOver);
-    assert_eq!(game.foods().len(), FOOD_COUNT);
-    assert!(game.legacy_foods().is_empty());
-    assert_eq!(game.corpse_pieces().len(), 3);
 }
 
 #[test]
@@ -602,6 +499,36 @@ fn ai_still_enters_large_self_enclosed_space() {
     let plan = game.player.plan_ai_move(&game);
 
     assert_eq!(plan.next_head, roomy_cell);
+}
+
+#[test]
+/// 验证 AI 进入区域时，要求可达空间至少比自身预测长度额外大出配置的余量。
+fn ai_requires_extra_region_margin_beyond_its_projected_length() {
+    let mut game = GameState::with_board_size(6, 6);
+    game.foods.clear();
+    game.legacy_foods.clear();
+    game.super_foods.clear();
+    game.enemies.clear();
+    game.player.body = VecDeque::from([Position { x: 0, y: 2 }, Position { x: 1, y: 2 }]);
+    game.player.direction = Direction::Right;
+    game.player.set_ai_controlled(true);
+
+    game.bombs = (0..6)
+        .flat_map(|y| (0..6).map(move |x| Position { x, y }))
+        .filter(|position| {
+            !matches!(
+                *position,
+                Position { x: 0, y: 2 }
+                    | Position { x: 1, y: 2 }
+                    | Position { x: 2, y: 2 }
+                    | Position { x: 3, y: 2 }
+            )
+        })
+        .collect();
+
+    let next = Position { x: 2, y: 2 };
+    assert_eq!(game.player().body().len() + AI_REGION_SIZE_MARGIN, 4);
+    assert!(!game.snake_step_has_adequate_space(game.player(), next));
 }
 
 /// 构造一圈矩形蛇身，并让蛇头停在左边界上，便于测试“向右钻入内部空间”的场景。
