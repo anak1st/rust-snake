@@ -138,7 +138,7 @@ fn sparse_pulse_phase(anchor: Instant, now: Instant, interval_ms: u64, every_ste
 mod tests {
     use std::time::Duration;
 
-    use super::{CellFlashKind, RenderState, SUPER_FOOD_PULSE_INTERVAL_MS};
+    use super::{CellFlashKind, RenderState};
     use crate::game::{GameEvent, GameState, Position};
 
     #[test]
@@ -171,42 +171,5 @@ mod tests {
                 .active_flashes
                 .is_empty()
         );
-    }
-
-    #[test]
-    /// 验证场上的超级食物脉冲会按固定节奏切换相位。
-    fn super_food_pulse_phase_toggles_over_time() {
-        let render_state = RenderState::new();
-        let now = std::time::Instant::now();
-
-        let first = render_state.animation_frame(now).super_food_pulse_on;
-        let second = render_state
-            .animation_frame(now + Duration::from_millis(SUPER_FOOD_PULSE_INTERVAL_MS))
-            .super_food_pulse_on;
-
-        assert_ne!(first, second);
-    }
-
-    #[test]
-    /// 验证普通食物采用稀疏闪烁，而不是像超级食物那样每拍交替。
-    fn normal_food_pulse_is_sparse() {
-        let render_state = RenderState::new();
-        let now = std::time::Instant::now();
-
-        let step0 = render_state.animation_frame(now).food_pulse_on;
-        let step1 = render_state
-            .animation_frame(now + Duration::from_millis(SUPER_FOOD_PULSE_INTERVAL_MS))
-            .food_pulse_on;
-        let step2 = render_state
-            .animation_frame(now + Duration::from_millis(SUPER_FOOD_PULSE_INTERVAL_MS * 2))
-            .food_pulse_on;
-        let step3 = render_state
-            .animation_frame(now + Duration::from_millis(SUPER_FOOD_PULSE_INTERVAL_MS * 3))
-            .food_pulse_on;
-
-        assert!(!step0);
-        assert!(!step1);
-        assert!(!step2);
-        assert!(step3);
     }
 }

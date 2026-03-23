@@ -18,11 +18,19 @@ mod style;
 pub use animation::RenderState;
 pub(crate) use animation::{ActiveCellFlash, AnimationFrame, CellFlashKind};
 
+/// 描述死亡回放当前正在查看的帧位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplayStatus {
+    pub current_frame: usize,
+    pub total_frames: usize,
+}
+
 /// 根据当前游戏状态绘制整个界面，并叠加动画帧。
 pub fn draw(
     frame: &mut Frame,
     game: &GameState,
     render_state: &RenderState,
+    replay_status: Option<ReplayStatus>,
     now: Instant,
     window_too_small: bool,
     no_color: bool,
@@ -48,11 +56,29 @@ pub fn draw(
 
     let animation = render_state.animation_frame(now);
 
-    panels::draw_header(frame, header_area, no_color);
-    panels::draw_status(frame, info_area, game, no_color);
+    panels::draw_header(
+        frame,
+        header_area,
+        game.run_state(),
+        replay_status,
+        no_color,
+    );
+    panels::draw_status(frame, info_area, game, replay_status, no_color);
     board::draw_board(frame, board_area, game, &animation, no_color);
-    panels::draw_state_overlay(frame, board_area, game.run_state(), no_color);
-    panels::draw_footer(frame, footer_area, game.run_state(), no_color);
+    panels::draw_state_overlay_with_replay(
+        frame,
+        board_area,
+        game.run_state(),
+        replay_status,
+        no_color,
+    );
+    panels::draw_footer(
+        frame,
+        footer_area,
+        game.run_state(),
+        replay_status,
+        no_color,
+    );
 }
 
 /// 判断当前终端尺寸是否已经小到无法稳定显示主界面。

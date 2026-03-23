@@ -6,6 +6,8 @@ pub mod app {
     pub const TEST_AI_TICK_RATE_MS: u64 = 32;
     /// 控制界面渲染频率，为后续动画和过渡效果预留更细的时间粒度。
     pub const RENDER_FRAME_RATE_MS: u64 = 16;
+    /// 死亡回放最多保留的历史逻辑帧数。
+    pub const DEATH_REPLAY_FRAME_COUNT: usize = 10;
 }
 
 /// 游戏玩法相关配置。

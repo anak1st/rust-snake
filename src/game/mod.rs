@@ -122,6 +122,7 @@ struct PendingEnemyRespawn {
 }
 
 /// 封装一局贪吃蛇的完整状态。
+#[derive(Debug, Clone)]
 pub struct GameState {
     /// 棋盘宽度，单位为网格数。
     width: u16,

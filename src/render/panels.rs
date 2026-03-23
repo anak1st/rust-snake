@@ -8,11 +8,28 @@ use ratatui::widgets::{Clear, Paragraph};
 
 use crate::game::{Direction as SnakeDirection, GameState, RunState, Snake};
 
+use super::ReplayStatus;
 use super::style::{MAIN_BORDER_COLOR, MUTED_COLOR, TEXT_COLOR, style_with_color, styled_block};
 
-/// 绘制顶部标题栏。
-pub(crate) fn draw_header(frame: &mut Frame, area: Rect, no_color: bool) {
-    let header = Paragraph::new(Line::from("Rust Snake"))
+/// 绘制顶部标题栏，并直接显示当前模式。
+pub(crate) fn draw_header(
+    frame: &mut Frame,
+    area: Rect,
+    state: RunState,
+    replay_status: Option<ReplayStatus>,
+    no_color: bool,
+) {
+    let mode_label = if replay_status.is_some() {
+        "Replay"
+    } else {
+        match state {
+            RunState::Ready => "Ready",
+            RunState::Running => "Running",
+            RunState::Paused => "Paused",
+            RunState::GameOver => "Game Over",
+        }
+    };
+    let header = Paragraph::new(Line::from(format!("Rust Snake | {mode_label}")))
         .alignment(Alignment::Center)
         .style(style_with_color(Color::LightCyan, no_color).add_modifier(Modifier::BOLD))
         .block(styled_block("Title", MAIN_BORDER_COLOR, no_color));
@@ -22,7 +39,13 @@ pub(crate) fn draw_header(frame: &mut Frame, area: Rect, no_color: bool) {
 /// 绘制状态信息栏。
 ///
 /// 显示当前 tick、分数、敌蛇数量、运行状态、方向等信息。
-pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_color: bool) {
+pub(crate) fn draw_status(
+    frame: &mut Frame,
+    area: Rect,
+    game: &GameState,
+    replay_status: Option<ReplayStatus>,
+    no_color: bool,
+) {
     let status_text = match game.run_state() {
         RunState::Ready => Span::styled("Ready", style_with_color(Color::Cyan, no_color)),
         RunState::Running => Span::styled("Running", style_with_color(Color::Green, no_color)),
@@ -78,6 +101,19 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_co
     info_rows[0].extend(ai_score_spans);
     info_rows[1].extend(ai_direction_spans);
 
+    if let Some(replay_status) = replay_status {
+        info_rows.push(vec![
+            Span::styled("Replay: ", style_with_color(MUTED_COLOR, no_color)),
+            Span::styled(
+                format!(
+                    "{}/{}",
+                    replay_status.current_frame, replay_status.total_frames
+                ),
+                style_with_color(Color::LightYellow, no_color).add_modifier(Modifier::BOLD),
+            ),
+        ]);
+    }
+
     let info = Paragraph::new(info_rows.into_iter().map(Line::from).collect::<Vec<_>>())
         .block(styled_block("Status", MAIN_BORDER_COLOR, no_color));
 
@@ -87,18 +123,32 @@ pub(crate) fn draw_status(frame: &mut Frame, area: Rect, game: &GameState, no_co
 /// 绘制底部帮助栏。
 ///
 /// 根据当前游戏状态显示对应的操作提示。
-pub(crate) fn draw_footer(frame: &mut Frame, area: Rect, state: RunState, no_color: bool) {
-    let footer = Paragraph::new(Line::from(help_text(state)))
+pub(crate) fn draw_footer(
+    frame: &mut Frame,
+    area: Rect,
+    state: RunState,
+    replay_status: Option<ReplayStatus>,
+    no_color: bool,
+) {
+    let footer = Paragraph::new(Line::from(help_text(state, replay_status)))
         .alignment(Alignment::Center)
         .style(style_with_color(MUTED_COLOR, no_color))
         .block(styled_block("Help", MAIN_BORDER_COLOR, no_color));
     frame.render_widget(footer, area);
 }
 
-/// 根据游戏状态绘制覆盖层。
-///
-/// 在 Ready、Paused、GameOver 状态下显示提示弹窗。
-pub(crate) fn draw_state_overlay(frame: &mut Frame, area: Rect, state: RunState, no_color: bool) {
+/// 根据游戏状态和回放模式绘制覆盖层。
+pub(crate) fn draw_state_overlay_with_replay(
+    frame: &mut Frame,
+    area: Rect,
+    state: RunState,
+    replay_status: Option<ReplayStatus>,
+    no_color: bool,
+) {
+    if replay_status.is_some() {
+        return;
+    }
+
     match state {
         RunState::Running => {}
         RunState::Ready => draw_message_popup(
@@ -128,7 +178,13 @@ pub(crate) fn draw_state_overlay(frame: &mut Frame, area: Rect, state: RunState,
             area,
             "Game Over",
             Color::Red,
-            &["游戏结束", "", "按 r 重新开始"],
+            &[
+                "游戏结束",
+                "",
+                "按 Left / Right 直接回放",
+                "按 Enter 或 Space 进入回放模式",
+                "按 r 重新开始",
+            ],
             no_color,
         ),
     }
@@ -168,12 +224,18 @@ pub(crate) fn draw_too_small(frame: &mut Frame, no_color: bool) {
 }
 
 /// 根据游戏状态返回对应的帮助文本。
-fn help_text(state: RunState) -> &'static str {
+fn help_text(state: RunState, replay_status: Option<ReplayStatus>) -> &'static str {
+    if replay_status.is_some() {
+        return "Left/Right 浏览回放 | Space/Esc 退出回放 | r 重新开始 | q 退出";
+    }
+
     match state {
         RunState::Ready => "Enter / Space / 方向键开始 | q 退出 | 调整窗口会重开",
         RunState::Running => "WASD/方向键移动 | Space 暂停 | r 重开 | q 退出 | 调整窗口会重开",
         RunState::Paused => "Space 继续 | r 重开 | q 退出 | 调整窗口会重开",
-        RunState::GameOver => "r 重新开始 | q 退出 | 调整窗口会重开",
+        RunState::GameOver => {
+            "Left/Right 直接回放 | Enter/Space 进入回放模式 | r 重新开始 | q 退出"
+        }
     }
 }
 
