@@ -11,6 +11,13 @@ use crate::config::game::{
 
 use super::{Direction, GameState, NavigationDecision, Position, Snake, SnakePlan};
 
+const ALL_DIRECTIONS: [Direction; 4] = [
+    Direction::Up,
+    Direction::Down,
+    Direction::Left,
+    Direction::Right,
+];
+
 /// 表示某个候选方向对 AI 的风险等级。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MoveRisk {
@@ -68,12 +75,11 @@ impl Snake {
     ///
     /// AI 决策采用分层优先级策略，按以下顺序尝试：
     ///
-    /// 1. **继续随机漫步**：如果当前正在随机漫步且下一步安全，继续沿当前方向走
+    /// 1. **继续随机漫步**：如果当前正处于随机漫步中，优先延续原方向
     /// 2. **触发随机漫步**：按配置概率进入随机漫步模式，持续配置指定的步数范围
-    /// 3. **追逐食物**：计算最近的食物位置，选择能接近食物的安全方向
-    /// 4. **保持方向**：如果当前方向安全，继续前进
-    /// 5. **紧急逃生**：从剩余安全方向中任选一个
-    /// 6. **无路可走**：保持当前方向（将导致死亡）
+    /// 3. **追逐食物**：计算最近的食物位置，选择更接近目标的方向
+    /// 4. **风险筛选**：统一检查主意图是否安全，不安全时再从候选方向中逃生
+    /// 5. **兜底保持方向**：当没有更好的候选方向时，保持当前方向
     ///
     /// # 返回值
     /// 返回包含方向、随机漫步步数和方向的导航决策
@@ -143,12 +149,7 @@ impl Snake {
 
     /// 返回一组打乱后的方向顺序，用于随机漫步或无偏逃生。
     fn shuffled_directions(&self) -> Vec<Direction> {
-        let mut directions = vec![
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-            Direction::Right,
-        ];
+        let mut directions = ALL_DIRECTIONS.to_vec();
         let mut rng = rand::rng();
         directions.shuffle(&mut rng);
         directions
@@ -159,7 +160,12 @@ impl Snake {
         directions
             .iter()
             .copied()
-            .find(|&direction| !self.direction().is_opposite(direction))
+            .find(|&direction| self.is_turn_allowed(direction))
+    }
+
+    /// 判断某个方向是否不是当前方向的直接反向。
+    fn is_turn_allowed(&self, direction: Direction) -> bool {
+        !self.direction().is_opposite(direction)
     }
 
     /// 返回一个不携带随机漫步状态的普通导航结果。
@@ -377,14 +383,7 @@ impl GameState {
 
     /// 判断一条蛇在不掉头的前提下，下一步是否有机会到达指定位置。
     fn snake_can_reach_position_next_tick(&self, snake: &Snake, position: Position) -> bool {
-        [
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-            Direction::Right,
-        ]
-        .into_iter()
-        .any(|direction| {
+        ALL_DIRECTIONS.into_iter().any(|direction| {
             !snake.direction().is_opposite(direction)
                 && self.next_position(snake.head(), direction) == position
         })
@@ -393,18 +392,13 @@ impl GameState {
     /// 判断一条蛇在下一步是否存在“会吃到东西从而保留尾巴”的可能。
     fn snake_might_grow_next_tick(&self, snake: &Snake) -> bool {
         snake.pending_growth > 0
-            || [
-                Direction::Up,
-                Direction::Down,
-                Direction::Left,
-                Direction::Right,
-            ]
-            .into_iter()
-            .filter(|&direction| !snake.direction().is_opposite(direction))
-            .any(|direction| {
-                let next = self.next_position(snake.head(), direction);
-                !self.hit_wall(next) && self.tile_effect(next).growth_amount > 0
-            })
+            || ALL_DIRECTIONS
+                .into_iter()
+                .filter(|&direction| !snake.direction().is_opposite(direction))
+                .any(|direction| {
+                    let next = self.next_position(snake.head(), direction);
+                    !self.hit_wall(next) && self.tile_effect(next).growth_amount > 0
+                })
     }
 
     /// 统计一条蛇完成指定落点后，蛇头仍能抵达的活动格数量。
@@ -475,12 +469,7 @@ impl GameState {
         while let Some(position) = frontier.pop_front() {
             reachable += 1;
 
-            for direction in [
-                Direction::Up,
-                Direction::Down,
-                Direction::Left,
-                Direction::Right,
-            ] {
+            for direction in ALL_DIRECTIONS {
                 let neighbor = self.next_position(position, direction);
                 if self.hit_wall(neighbor) {
                     continue;
@@ -582,12 +571,7 @@ impl GameState {
         }
 
         // 补充剩余方向
-        for direction in [
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-            Direction::Right,
-        ] {
+        for direction in ALL_DIRECTIONS {
             if !directions.contains(&direction) {
                 directions.push(direction);
             }
