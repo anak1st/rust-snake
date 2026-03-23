@@ -43,6 +43,10 @@ struct NavigationIntent {
 }
 
 impl Snake {
+    // ==================== Decision: 决定 AI 想走哪一类方向 ====================
+    // 这一段负责生成移动意图与候选顺序，例如继续随机漫步、开始随机漫步、
+    // 朝食物靠近，以及在主意图失败时挑选一个可接受的回退方向。
+
     /// 为当前 AI 计算下一步移动意图。
     ///
     /// AI 的状态与决策都归属于蛇自身，`GameState` 只提供棋盘规则、
@@ -281,6 +285,10 @@ impl MoveRisk {
 }
 
 impl GameState {
+    // ==================== Risk: 判断某一步是否危险或会立即死亡 ====================
+    // 这一段只回答“这步能不能走、风险有多大”，不负责决定优先走哪条路线。
+    // 这里会综合墙体、尸块、炸弹、其他蛇占位和头撞头输赢等规则。
+
     /// 判断一条蛇按当前环境前进一步是否安全（不会立即撞死）。
     ///
     /// 处理步骤：
@@ -288,25 +296,11 @@ impl GameState {
     /// - 检查蛇是否存活
     /// - 检查是否撞到自身或尸块（考虑尾巴移动规则）
     /// - 检查是否撞到炸弹或其他蛇
-    ///
-    /// # 参数
-    /// - `snake`: 当前执行决策的蛇，自身碰撞和"跳过自己"都基于这个引用判断
-    /// - `next`: 待检查的下一步位置
-    ///
-    /// # 返回值
-    /// 如果位置安全则返回 `true`
     pub(super) fn snake_step_is_safe(&self, snake: &Snake, next: Position) -> bool {
-        // 检查是否撞墙
-        if self.hit_wall(next) {
+        if self.hit_wall(next) || !snake.is_alive() {
             return false;
         }
 
-        // 检查蛇是否存活
-        if !snake.is_alive() {
-            return false;
-        }
-
-        // 检查是否撞到自身或尸块
         let effect = self.tile_effect(next);
         let my_projected_length = snake.projected_length(effect.growth_amount);
 
@@ -316,7 +310,6 @@ impl GameState {
             return false;
         }
 
-        // 检查是否撞到炸弹或其他蛇
         let hits_non_wall_hazard = self.bombs.contains(&next)
             || self.other_snakes_occupy_position(snake, next)
             || self.other_snake_can_win_head_on(snake, next, my_projected_length);
@@ -325,13 +318,6 @@ impl GameState {
     }
 
     /// 判断这一步走完后，蛇头所在连通区域是否仍足以容纳自身长度。
-    ///
-    /// 该检查用于识别“虽然不会立刻撞死，但会把自己扎进狭小封闭空间”的走法。
-    /// 实现上会先按本步结果投影出新的蛇身位置，再从新蛇头出发做 flood fill，
-    /// 统计仍可接触到的活动格数量；如果这片区域小于投影体长，就视为高风险。
-    ///
-    /// 这是一个轻量近似，不会尝试精确模拟未来数步，
-    /// 因此当空间本身足够大时，AI 仍会允许进入。
     pub(super) fn snake_step_has_adequate_space(&self, snake: &Snake, next: Position) -> bool {
         let effect = self.tile_effect(next);
         let projected_length = snake.projected_length(effect.growth_amount);
@@ -381,6 +367,10 @@ impl GameState {
                 })
     }
 
+    // ==================== Projection: 投影一步后的蛇身与占位状态 ====================
+    // 这一段负责把“如果走出这一步，身体会变成什么样”算出来，
+    // 供风险评估与空间分析复用，避免把增长、尾巴移动等细节散落在各处。
+
     /// 判断一条蛇在不掉头的前提下，下一步是否有机会到达指定位置。
     fn snake_can_reach_position_next_tick(&self, snake: &Snake, position: Position) -> bool {
         ALL_DIRECTIONS.into_iter().any(|direction| {
@@ -401,34 +391,42 @@ impl GameState {
                 })
     }
 
+    /// 计算一条蛇在本步结算后的投影蛇身。
+    fn projected_body_after_step(
+        &self,
+        snake: &Snake,
+        next: Position,
+        growth_amount: u16,
+    ) -> VecDeque<Position> {
+        let mut body = snake.body().clone();
+        body.push_back(next);
+        if !snake.grows(growth_amount) {
+            body.pop_front();
+        }
+        body
+    }
+
+    // ==================== Space Analysis: 评估落点后的可展开空间 ====================
+    // 这一段不关心目标值高不高，只关心“走到这里之后还有没有足够空间活下去”。
+    // 主要通过构造阻挡图和 flood fill 来估算可达区域大小。
+
     /// 统计一条蛇完成指定落点后，蛇头仍能抵达的活动格数量。
-    ///
-    /// 处理步骤：
-    /// - 初始化阻挡数组，标记所有不可通行的格子
-    /// - 标记尸块和炸弹为阻挡
-    /// - 标记其他蛇的蛇身为阻挡
-    /// - 计算投影蛇身并标记为阻挡
-    /// - 使用 flood fill 统计可达空间
     fn reachable_space_after_step(
         &self,
         snake: &Snake,
         next: Position,
         growth_amount: u16,
     ) -> usize {
-        // 初始化阻挡数组
         let mut blocked = vec![false; usize::from(self.width) * usize::from(self.height)];
 
-        // 标记尸块为阻挡
         for corpse in &self.corpse_pieces {
             blocked[self.board_index(corpse.position())] = true;
         }
 
-        // 标记炸弹为阻挡
         for bomb in &self.bombs {
             blocked[self.board_index(*bomb)] = true;
         }
 
-        // 标记玩家蛇身为阻挡
         if self.player.is_alive() && !std::ptr::eq(&self.player, snake) {
             self.mark_body_as_blocked(
                 &mut blocked,
@@ -437,7 +435,6 @@ impl GameState {
             );
         }
 
-        // 标记敌蛇蛇身为阻挡
         for enemy in &self.enemies {
             if enemy.is_alive() && !std::ptr::eq(enemy, snake) {
                 self.mark_body_as_blocked(
@@ -448,7 +445,6 @@ impl GameState {
             }
         }
 
-        // 计算投影蛇身并标记为阻挡（排除新蛇头）
         let projected_body = self.projected_body_after_step(snake, next, growth_amount);
         for segment in projected_body
             .iter()
@@ -457,7 +453,6 @@ impl GameState {
             blocked[self.board_index(*segment)] = true;
         }
 
-        // 使用 flood fill 统计可达空间
         let start = self.board_index(next);
         blocked[start] = false;
 
@@ -489,8 +484,6 @@ impl GameState {
     }
 
     /// 将一条蛇当前会占据的格子标记为阻挡。
-    ///
-    /// 当本回合尾巴会移动时，尾格会被视为可穿过，以保持与即时安全判断一致。
     fn mark_body_as_blocked(&self, blocked: &mut [bool], body: &VecDeque<Position>, grows: bool) {
         for (index, segment) in body.iter().enumerate() {
             let is_tail = index == 0;
@@ -502,36 +495,16 @@ impl GameState {
         }
     }
 
-    /// 计算一条蛇在本步结算后的投影蛇身。
-    fn projected_body_after_step(
-        &self,
-        snake: &Snake,
-        next: Position,
-        growth_amount: u16,
-    ) -> VecDeque<Position> {
-        let mut body = snake.body().clone();
-        body.push_back(next);
-        if !snake.grows(growth_amount) {
-            body.pop_front();
-        }
-        body
-    }
-
     /// 将棋盘坐标转换为连续数组下标。
     fn board_index(&self, position: Position) -> usize {
         usize::from(position.y) * usize::from(self.width) + usize::from(position.x)
     }
 
+    // ==================== Targeting: 生成朝目标靠近的方向偏好 ====================
+    // 这一段只负责“更想往哪边靠近目标”，例如寻找最近可吃物、给出靠近目标的方向序。
+    // 它不处理安全性，真正的风险筛选会在上面的 Risk/Decision 阶段完成。
+
     /// 返回离指定坐标最近的一颗可食用物品。
-    ///
-    /// 在普通食物、尸体食物和超级食物中，
-    /// 选择曼哈顿距离最近的一个作为目标。
-    ///
-    /// # 参数
-    /// - `origin`: 起始位置（通常是 AI 蛇头）
-    ///
-    /// # 返回值
-    /// 返回最近食物的位置，如果没有食物则返回起始位置
     fn closest_consumable_to(&self, origin: Position) -> Position {
         self.foods
             .iter()
@@ -542,22 +515,10 @@ impl GameState {
             .unwrap_or(origin)
     }
 
-    /// 按"更接近目标优先，其余方向补齐"的顺序返回方向列表。
-    ///
-    /// 处理步骤：
-    /// - 根据目标位置添加能减少距离的方向
-    /// - 补充剩余方向以覆盖所有可能性
-    ///
-    /// # 参数
-    /// - `origin`: 起始位置
-    /// - `target`: 目标位置
-    ///
-    /// # 返回值
-    /// 返回按优先级排序的方向列表
+    /// 按“更接近目标优先，其余方向补齐”的顺序返回方向列表。
     fn preferred_directions(&self, origin: Position, target: Position) -> Vec<Direction> {
         let mut directions = Vec::with_capacity(4);
 
-        // 添加能减少与目标距离的方向
         if target.x > origin.x {
             directions.push(Direction::Right);
         } else if target.x < origin.x {
@@ -570,7 +531,6 @@ impl GameState {
             directions.push(Direction::Up);
         }
 
-        // 补充剩余方向
         for direction in ALL_DIRECTIONS {
             if !directions.contains(&direction) {
                 directions.push(direction);
